@@ -76,7 +76,7 @@ def test_sms_parse_and_group(con):
 
 
 def test_sms_ignores_bills():
-    assert sms.parse_message("Sayin abonemiz, FETHIYE Ilcesi TUZLA Mahallesi ... faturaniz 818.65 TL B002") is None
+    assert sms.parse_message("Sayin abonemiz, X Ilcesi Y Mahallesi ... faturaniz 123.45 TL B002") is None
 
 
 def test_bad_card_and_bad_api_do_not_kill_run(con):

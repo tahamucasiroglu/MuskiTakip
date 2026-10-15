@@ -29,7 +29,7 @@ def test_inbox_auto(con):
 
 
 def test_inbox_non_outage(con):
-    iid, _ = inbox.save(con, "Sayin abonemiz faturaniz 818 TL B002")
+    iid, _ = inbox.save(con, "Sayin abonemiz faturaniz 123 TL B002")
     assert not inbox.auto_process(con, iid)["ok"]
     assert con.execute("SELECT durum FROM inbox").fetchone()[0] == "kesinti_degil"
 
