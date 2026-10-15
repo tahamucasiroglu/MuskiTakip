@@ -23,7 +23,7 @@
 <div class="status {{ 'warn' if st.stale or (st.last and not st.last.ok) else '' }}">
   {% if st.last %}
     <span><b>Son site ziyareti:</b> {{ st.last.started_at|dt(true) }} ({{ st.last.started_at|ago }})
-      — {% if st.last.ok %}<span class="ok">başarılı</span>{% elif st.last.finished_at %}<span class="err">HATA</span>{% else %}sürüyor…{% endif %}</span>
+      — {% if st.last.ok %}<span class="ok">başarılı</span>{% elif st.last.finished_at %}<span class="err">HATA</span>{% if st.last.error %} <small><a href="{{ url_for('logs_page') }}">{{ st.last.error[:140] }}</a></small>{% endif %}{% else %}sürüyor…{% endif %}</span>
     {% if st.last_ok %}<span><b>Son başarılı:</b> {{ st.last_ok.finished_at|dt(true) }} · sayfada {{ st.last_ok.html_count if st.last_ok.html_count is not none else '-' }} kart, API {{ st.last_ok.api_count if st.last_ok.api_count is not none else '-' }} kayıt</span>{% endif %}
   {% else %}
     <span>Henüz site ziyareti yapılmadı. Tarayıcı her {{ st.interval }} dakikada bir otomatik çalışır.</span>

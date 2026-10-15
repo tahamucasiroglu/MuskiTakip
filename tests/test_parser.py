@@ -54,7 +54,10 @@ def test_process_idempotent_and_gone(con):
     row = con.execute("SELECT kesinti_tarihi, muski_id FROM outages WHERE muski_id=155162").fetchone()
     assert row["kesinti_tarihi"] == "2026-10-15T17:53:37+03:00"
     # bir kart kaybolunca "siteden kalktı"
-    r = run(HTML.replace('class="outage-detail-card"', 'class="x"', 1), None)
+    import re as _re
+    one_less = _re.sub(r"(Toplam</div>\s*<div[^>]*>)15(</div>)", r"\g<1>14",
+                       HTML.replace('class="outage-detail-card"', 'class="x"', 1))
+    r = run(one_less, None)
     assert r["gone"] == 1
     # boş/bozuk sayfa gelirse hiçbiri kalkmış sayılmamalı
     assert run("<html></html>", None)["gone"] == 0
@@ -143,3 +146,14 @@ def test_undo_gone(con):
     scraper.mark_gone(con, sid, db.now_iso(), set())
     assert scraper.undo_gone(con, sid, "test") == 15
     assert con.execute("SELECT COUNT(*) FROM outages WHERE gone_at IS NOT NULL OR durum='kalkti'").fetchone()[0] == 0
+
+
+def test_partial_card_list_does_not_mark_gone(con):
+    sid = con.execute("INSERT INTO scrapes(started_at) VALUES (?)", (db.now_iso(),)).lastrowid
+    scraper.process(con, sid, HTML, API, db.now_iso())
+    partial = HTML
+    for _ in range(5):
+        partial = partial.replace('class="outage-detail-card"', 'class="x"', 1)
+    sid = con.execute("INSERT INTO scrapes(started_at) VALUES (?)", (db.now_iso(),)).lastrowid
+    errs = []
+    assert scraper.process(con, sid, partial, None, db.now_iso(), errs)["gone"] == 0 and errs

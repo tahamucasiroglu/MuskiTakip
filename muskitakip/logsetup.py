@@ -26,6 +26,10 @@ class RedactFormatter(logging.Formatter):
         self.secrets = [s for s in (os.environ.get("MUSKI_TG_TOKEN"), os.environ.get("MUSKI_TG_CLAIM_CODE")) if s]
 
     def format(self, record):
+        # Mesajdaki satır sonları kaçışlanır: URL vb. ile sahte log satırı eklenemesin (traceback etkilenmez).
+        msg = record.getMessage()
+        if "\n" in msg or "\r" in msg:
+            record.msg, record.args = msg.replace("\r", "\\r").replace("\n", "\\n"), None
         text = super().format(record)
         for s in self.secrets:
             text = text.replace(s, "***")
@@ -123,14 +127,19 @@ def read_records(path: Path, max_bytes: int = 2_000_000) -> list[dict]:
 
 
 def recent_problems(hours: int = 24, min_level: str = "WARNING") -> list[dict]:
-    """Bütün bileşenlerin güncel dosyalarındaki son uyarı/hatalar (yeni → eski)."""
-    since = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - hours * 3600))
-    lvl = LEVELS.index(min_level)
+    """Bütün bileşenlerin (dönmüş dosyalar dahil) zaman aralığındaki uyarı/hataları (yeni → eski)."""
+    cutoff = time.time() - hours * 3600
+    since = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(cutoff))
+    lvl = LEVELS.index(min_level) if min_level in LEVELS else LEVELS.index("WARNING")
     out = []
     for p in log_files():
-        if not p.name.endswith(".log"):
-            continue  # yalnızca güncel dosyalar (dönmüş eski dosyalar hariç)
-        for r in read_records(p):
+        try:
+            if p.stat().st_mtime < cutoff:
+                continue  # aralıktan önce kapanmış dosya
+            records = read_records(p)
+        except OSError:  # okunurken döndürülmüş/silinmiş olabilir
+            continue
+        for r in records:
             if r["time"] >= since and r["level"] in LEVELS and LEVELS.index(r["level"]) >= lvl:
                 out.append(r)
     return sorted(out, key=lambda r: r["time"], reverse=True)

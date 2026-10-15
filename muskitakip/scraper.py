@@ -408,7 +408,12 @@ def process(con, scrape_id, html: str | None, api_text: str | None, now: str, er
     active_in_api = [it for it in items if not it["tamamlandi"]]
     if page and grid_ok and not stats["error"] and not site_error:
         toplam = page["summary"].get("Toplam")
-        if page["cards"]:
+        if page["cards"] and toplam not in (None, len(page["cards"])):
+            # Özet sayısı ile okunan kart sayısı tutmuyorsa liste eksik gelmiş olabilir: kimseyi "kalktı" sayma.
+            errors.append(f"Sayfa özeti {toplam} kesinti diyor ama {len(page['cards'])} kart okundu; "
+                          f"kalkma kontrolü atlandı")
+            log.warning("Özet/kart sayısı uyuşmuyor (%s/%s); kalkma kontrolü atlandı", toplam, len(page["cards"]))
+        elif page["cards"]:
             stats["gone"] = mark_gone(con, scrape_id, now, used_ids)
         elif active_in_api:
             log.warning("Sayfa 'kesinti yok' diyor ama API'de %s devam eden kesinti var; kalkma kontrolü atlandı",

@@ -389,7 +389,8 @@ def logs_page():
     files = logsetup.log_files()
     names = [p.name for p in files]
     name = request.args.get("dosya") or ""
-    level = request.args.get("seviye", "")
+    level = (request.args.get("seviye") or "").upper()
+    level = level if level in logsetup.LEVELS else ""
     q = (request.args.get("q") or "").strip()
     limit = request.args.get("adet", 300, type=int)
     if name and name not in names:
