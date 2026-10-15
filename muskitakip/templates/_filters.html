@@ -1,0 +1,55 @@
+<form class="filters" method="get">
+  <label>İlçe
+    <select name="ilce">
+      <option value="">Tüm ilçeler</option>
+      {% for i in ilceler %}<option value="{{ i }}" {{ 'selected' if f.ilce == i }}>{{ i }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Mahalle
+    <input name="mahalle" value="{{ f.mahalle }}" list="mahalle-list" placeholder="örn. Tuzla">
+    <datalist id="mahalle-list">{% for m in mahalleler %}<option value="{{ m }}">{% endfor %}</datalist>
+  </label>
+  <label>Durum
+    <select name="durum">
+      {% for k, v in DURUM_FILTERS.items() %}<option value="{{ k }}" {{ 'selected' if f.durum == k }}>{{ v }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Tür
+    <select name="tur">
+      <option value="">Tümü</option>
+      <option value="plansiz" {{ 'selected' if f.tur == 'plansiz' }}>Plansız (arıza)</option>
+      <option value="planli" {{ 'selected' if f.tur == 'planli' }}>Planlı</option>
+    </select>
+  </label>
+  <label>Başlangıç tarihi <input type="date" name="bas" value="{{ f.bas }}"></label>
+  <label>Bitiş tarihi <input type="date" name="bit" value="{{ f.bit }}"></label>
+  <label>Kayıt türü
+    <select name="kaynak">
+      <option value="">Tümü (web + mesaj)</option>
+      {% for k, v in KAYNAK_LABELS.items() %}<option value="{{ k }}" {{ 'selected' if f.kaynak == k }}>{{ v }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Ara (ID, iş emri, metin) <input name="q" value="{{ f.q }}"></label>
+  {% if show_sort %}
+  <label>Sıralama
+    <select name="sirala">
+      <option value="tarih_desc" {{ 'selected' if f.sirala == 'tarih_desc' }}>Kesinti tarihi (yeni → eski)</option>
+      <option value="tarih_asc" {{ 'selected' if f.sirala == 'tarih_asc' }}>Kesinti tarihi (eski → yeni)</option>
+      <option value="ilce" {{ 'selected' if f.sirala == 'ilce' }}>İlçe</option>
+      <option value="ilk_gorulme" {{ 'selected' if f.sirala == 'ilk_gorulme' }}>İlk görülme</option>
+    </select>
+  </label>
+  {% endif %}
+  <div class="buttons">
+    <button type="submit">Filtrele</button>
+    <a class="btn light" href="?">Temizle</a>
+  </div>
+</form>
+<div class="quick">
+  Hızlı: <a href="?{{ qs(durum='devam', sayfa=None) }}">Devam edenler</a> ·
+  <a href="?{{ qs(kaynak='web', sayfa=None) }}">Yalnız web</a> ·
+  <a href="?{{ qs(kaynak='mesaj', sayfa=None) }}">Yalnız mesaj</a> ·
+  <a href="?{{ qs(durum='bitti', sayfa=None) }}">Bitenler</a> ·
+  {% for i, label in [('FETHİYE', 'Fethiye'), ('MARMARİS', 'Marmaris'), ('BODRUM', 'Bodrum'), ('MENTEŞE', 'Menteşe'), ('MİLAS', 'Milas')] %}<a href="?{{ qs(ilce=i, sayfa=None) }}">{{ label }}</a> · {% endfor %}
+  <a href="?{{ qs(bas=today, bit=today, sayfa=None) }}">Bugün</a>
+</div>

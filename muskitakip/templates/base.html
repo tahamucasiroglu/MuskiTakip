@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}MUSKİ Kesinti Takip{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="{{ url_for('index') }}">💧 MUSKİ Kesinti Takip</a>
+  <nav>
+    <a href="{{ url_for('index') }}">Kesintiler</a>
+    <a href="{{ url_for('stats') }}">İstatistik</a>
+    <a href="{{ url_for('scrapes') }}">Site ziyaretleri</a>
+    <a href="{{ url_for('backups') }}">Yedek / Veritabanı</a>
+  </nav>
+</header>
+{% if st %}
+<div class="status {{ 'warn' if st.stale or (st.last and not st.last.ok) else '' }}">
+  {% if st.last %}
+    <span><b>Son site ziyareti:</b> {{ st.last.started_at|dt(true) }} ({{ st.last.started_at|ago }})
+      — {% if st.last.ok %}<span class="ok">başarılı</span>{% elif st.last.finished_at %}<span class="err">HATA</span>{% else %}sürüyor…{% endif %}</span>
+    {% if st.last_ok %}<span><b>Son başarılı:</b> {{ st.last_ok.finished_at|dt(true) }} · sayfada {{ st.last_ok.html_count if st.last_ok.html_count is not none else '-' }} kart, API {{ st.last_ok.api_count if st.last_ok.api_count is not none else '-' }} kayıt</span>{% endif %}
+  {% else %}
+    <span>Henüz site ziyareti yapılmadı. Tarayıcı her {{ st.interval }} dakikada bir otomatik çalışır.</span>
+  {% endif %}
+  <span><b>Kayıt:</b> {{ st.counts.toplam or 0 }} · devam {{ st.counts.devam or 0 }} · biten {{ (st.counts.tamamlandi or 0) + (st.counts.kalkti or 0) }} · şu an sitede {{ st.counts.sitede or 0 }}</span>
+  <span><b>Ziyaret sayısı:</b> {{ st.nscr.n or 0 }}{% if st.nscr.hata %} ({{ st.nscr.hata }} hatalı){% endif %}</span>
+  {% if st.stale and st.last_ok %}<span class="err">⚠ Son {{ st.interval * 2 }}+ dakikadır başarılı ziyaret yok!</span>{% endif %}
+</div>
+{% endif %}
+<main>
+{% block content %}{% endblock %}
+</main>
+<footer>Kaynak: <a href="https://www.muski.gov.tr/su-kesintileri" target="_blank" rel="noopener">muski.gov.tr/su-kesintileri</a> · her {{ st.interval if st else 15 }} dakikada bir otomatik kaydedilir.</footer>
+</body>
+</html>

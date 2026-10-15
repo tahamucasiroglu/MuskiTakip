@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}İstatistik — MUSKİ Kesinti Takip{% endblock %}
+{% block content %}
+<h1>İstatistik</h1>
+{% set show_sort = false %}
+{% include "_filters.html" %}
+<p class="muted">{{ filter_text }}</p>
+
+<div class="cols">
+<section>
+<h2>İlçelere göre</h2>
+<table class="grid small">
+  <thead><tr><th>İlçe</th><th>Kesinti</th><th>Devam eden</th><th>Toplam tahmini süre</th></tr></thead>
+  <tbody>{% for r in by_ilce %}<tr><td><a href="{{ url_for('index') }}?{{ qs(ilce=r.ilce) }}">{{ r.ilce }}</a></td><td>{{ r.n }}</td><td>{{ r.devam or 0 }}</td><td>{{ r.tahmini_toplam|saat }}</td></tr>{% endfor %}</tbody>
+</table>
+
+<h2>Aylara göre</h2>
+<table class="grid small">
+  <thead><tr><th>Ay</th><th>Kesinti</th><th>Toplam tahmini süre</th></tr></thead>
+  <tbody>{% for r in by_month %}<tr><td>{{ r.ay }}</td><td>{{ r.n }}</td><td>{{ r.saat|saat }}</td></tr>{% endfor %}</tbody>
+</table>
+
+<h2>Günlere göre (son 60 gün)</h2>
+<table class="grid small">
+  <thead><tr><th>Gün</th><th>Kesinti</th></tr></thead>
+  <tbody>{% for r in by_day %}<tr><td><a href="{{ url_for('index') }}?{{ qs(bas=r.gun, bit=r.gun) }}">{{ r.gun }}</a></td><td>{{ r.n }}</td></tr>{% endfor %}</tbody>
+</table>
+</section>
+
+<section>
+<h2>En çok kesinti yaşayan mahalleler</h2>
+<table class="grid small">
+  <thead><tr><th>İlçe</th><th>Mahalle</th><th>Kesinti</th><th>Son kesinti</th></tr></thead>
+  <tbody>{% for r in by_mahalle %}<tr><td>{{ r.ilce }}</td><td><a href="{{ url_for('index') }}?{{ qs(ilce=r.ilce, mahalle=r.mahalle) }}">{{ r.mahalle }}</a></td><td>{{ r.adet }}</td><td>{{ r.son|dt }}</td></tr>{% endfor %}</tbody>
+</table>
+</section>
+</div>
+{% endblock %}

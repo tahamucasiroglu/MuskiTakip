@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Kesinti #{{ o.id }} — MUSKİ Kesinti Takip{% endblock %}
+{% block content %}
+<p><a href="{{ url_for('index') }}">← Listeye dön</a></p>
+<h1>Kesinti #{{ o.id }} — {{ o.ilce }} <span class="pill p-{{ o.durum }}">{{ o.durum_label }}</span></h1>
+
+<div class="cols">
+<table class="kv">
+  <tr><th>Kesinti tarihi</th><td>{{ o.kesinti_tarihi|dt(true) }} <small class="muted">(ham: {{ o.kesinti_tarihi_raw }})</small></td></tr>
+  <tr><th>Tahmini süre</th><td>{{ o.tahmini_sure_saat|saat }} {% if o.tahmini_sure_text %}<small class="muted">(sitede: "{{ o.tahmini_sure_text }}")</small>{% endif %}</td></tr>
+  <tr><th>Tahmini bitiş</th><td>{{ o.tahmini_bitis|dt }}</td></tr>
+  <tr><th>Bitiş aralığı</th><td>{% if o.bitis_en_gec %}{{ o.bitis_en_erken|dt(true) or 'bilinmiyor' }} ile {{ o.bitis_en_gec|dt(true) }} arası{% else %}henüz bitmedi{% endif %}</td></tr>
+  <tr><th>Gerçekleşen süre</th><td>{% if o.sure_en_fazla_saat is not none %}{% if o.sure_en_az_saat is not none %}{{ o.sure_en_az_saat|saat }} – {% else %}en fazla {% endif %}{{ o.sure_en_fazla_saat|saat }}{% if o.tahmin_asildi %} <span class="err">(tahmin aşıldı)</span>{% endif %}{% else %}—{% endif %}</td></tr>
+  <tr><th>Kesinti türü</th><td>{{ o.kesinti_turu or '' }} {% if o.tur_etiketi %}<small class="muted">(rozet: {{ o.tur_etiketi }}, kod: {{ o.kesinti_turu_kod }})</small>{% endif %}</td></tr>
+  <tr><th>Sitedeki durum</th><td>{{ o.site_durum_text or '' }} <small class="muted">{{ o.site_durum or '' }}</small></td></tr>
+  <tr><th>Etkilenen mahalleler</th><td>{{ o.mahalleler_text }}</td></tr>
+  <tr><th>Kayıt türü</th><td>{{ o.kaynak_label }}</td></tr>
+  {% if o.ariza_yeri %}<tr><th>Arıza yeri</th><td>{{ o.ariza_yeri }}</td></tr>{% endif %}
+  {% if o.sebep %}<tr><th>Sebep</th><td>{{ o.sebep }}</td></tr>{% endif %}
+  {% if o.uzatildi %}<tr><th>İlk bildirilen bitiş</th><td>{{ o.ilk_ilan_bitis|dt }} <span class="err">(sonradan uzatıldı)</span></td></tr>{% endif %}
+  {% if o.notes %}<tr><th>Not</th><td>{{ o.notes }}</td></tr>{% endif %}
+</table>
+
+<table class="kv">
+  <tr><th>MUSKİ kesinti ID</th><td>{{ o.muski_id or '— (JSON servisinde görülmedi)' }}</td></tr>
+  <tr><th>İş emri no (aysIsEmriId)</th><td>{{ o.ays_is_emri_id or '—' }}</td></tr>
+  <tr><th>İş emri durumu</th><td>{{ o.is_emri_durum_adi or '' }} {% if o.is_emri_durum_id %}<small class="muted">(id {{ o.is_emri_durum_id }}, renk {{ o.is_emri_renk }}, tamamlandı={{ o.is_emri_tamamlandi }})</small>{% endif %}</td></tr>
+  <tr><th>Sahaya gönderildi</th><td>{{ o.sahaya_gonderildi or '' }}</td></tr>
+  <tr><th>API durum / yayınlansın</th><td>{{ o.api_durum or '' }} / {{ o.kesinti_yayinlansin or '' }}</td></tr>
+  <tr><th>Boru cinsi</th><td>{{ o.boru_cinsi or '' }}</td></tr>
+  <tr><th>İl / İlçe kodları</th><td>{{ o.il or '' }} (il id {{ o.il_id or '-' }}) · ilçe id {{ o.ilce_id or '-' }} · UAVT {{ o.ilce_uavt or '-' }} · MERNİS {{ o.ilce_mernis or '-' }}</td></tr>
+  <tr><th>İlk görülme</th><td>{{ o.first_seen_at|dt(true) }}</td></tr>
+  <tr><th>Son görülme</th><td>{{ o.last_seen_at|dt(true) }}</td></tr>
+  <tr><th>Son "devam" görülme</th><td>{{ o.last_active_seen_at|dt(true) }}</td></tr>
+  <tr><th>İlk "tamamlandı" görülme</th><td>{{ o.completed_seen_at|dt(true) }}</td></tr>
+  <tr><th>Siteden kalkma</th><td>{{ o.gone_at|dt(true) }}</td></tr>
+</table>
+</div>
+
+{% if msgs %}
+<h2>Bu kesintiye ait SMS'ler</h2>
+<table class="grid small">
+  <thead><tr><th>Tip</th><th>Mesajdaki tarih</th><th>Bildirilen bitiş</th><th>Kaç kez geldi</th><th>Metin</th></tr></thead>
+  <tbody>
+  {% for m in msgs %}<tr><td>{{ m.tip }}</td><td class="nowrap">{{ m.mesaj_tarihi|dt }}</td><td class="nowrap">{{ m.ilan_bitis|dt }}</td><td>{{ m.adet }}</td><td class="mah"><small>{{ m.text }}</small></td></tr>{% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h2>Mahalleler</h2>
+<table class="grid small">
+  <thead><tr><th>Mahalle</th><th>Mahalle ID</th><th>UAVT kodu</th><th></th></tr></thead>
+  <tbody>
+  {% for n in nbs %}<tr><td>{{ n.mahalle }}</td><td>{{ n.mahalle_id or '' }}</td><td>{{ n.uavt_kodu or '' }}</td>
+    <td><a href="{{ url_for('index') }}?mahalle={{ n.mahalle|urlencode }}&ilce={{ o.ilce|urlencode }}">bu mahallenin tüm kesintileri →</a></td></tr>{% endfor %}
+  </tbody>
+</table>
+
+<h2>Değişiklik geçmişi</h2>
+<table class="grid small">
+  <thead><tr><th>Zaman</th><th>Olay</th><th>Alan</th><th>Eski</th><th>Yeni</th></tr></thead>
+  <tbody>
+  {% for e in events %}<tr><td class="nowrap">{{ e.at|dt(true) }}</td><td>{{ e.event }}</td><td>{{ e.field or '' }}</td><td>{{ e.old_value or '' }}</td><td>{{ e.new_value or '' }}</td></tr>{% endfor %}
+  </tbody>
+</table>
+
+{% if o.raw_api_json %}
+<details><summary>Ham JSON (MUSKİ API'den, son görülen)</summary><pre>{{ o.raw_api_json }}</pre></details>
+{% endif %}
+{% if o.raw_html_card %}
+<details><summary>Ham HTML kartı (sayfadan, son görülen)</summary><pre>{{ o.raw_html_card }}</pre></details>
+{% endif %}
+{% endblock %}

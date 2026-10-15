@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Site ziyaretleri — MUSKİ Kesinti Takip{% endblock %}
+{% block content %}
+<h1>Site ziyaretleri</h1>
+<p class="muted">Her satır, sitenin bir kez ziyaret edildiği taramadır (son 500). "Ham" bağlantıları o anda siteden alınan
+  verinin değiştirilmemiş kopyasıdır (yalnızca içerik değiştiğinde yeni kopya saklanır; SHA-256 özetiyle).
+  {% if only_err %}<a href="?">Tümünü göster</a>{% else %}<a href="?hata=1">Yalnızca hatalılar</a>{% endif %}</p>
+<div class="table-wrap">
+<table class="grid small">
+  <thead><tr><th>#</th><th>Başlangıç</th><th>Süre</th><th>Sonuç</th><th>Yöntem</th><th>Sayfa kartı</th><th>API</th>
+    <th>Yeni</th><th>Değişen</th><th>Kalkan</th><th>Site özeti<br><small>plansız/planlı/tamam/toplam</small></th><th>Site "son güncelleme"</th><th>Ham</th><th>Hata</th></tr></thead>
+  <tbody>
+  {% for s in rows %}
+    <tr class="{{ '' if s.ok else 'd-err' }}">
+      <td>{{ s.id }}</td>
+      <td class="nowrap">{{ s.started_at|dt(true) }}</td>
+      <td>{% if s.finished_at %}{{ ((s.finished_at|string)[11:19]) }}{% endif %}</td>
+      <td>{% if s.ok %}<span class="ok">✓</span>{% elif s.finished_at %}<span class="err">✗</span>{% else %}…{% endif %}</td>
+      <td>{{ s.method or '' }}</td>
+      <td>{{ s.html_count if s.html_count is not none else '' }}</td>
+      <td>{{ s.api_count if s.api_count is not none else '' }}</td>
+      <td>{{ s.new_count or '' }}</td>
+      <td>{{ s.changed_count or '' }}</td>
+      <td>{{ s.gone_count or '' }}</td>
+      <td>{% if s.site_toplam is not none %}{{ s.site_plansiz }}/{{ s.site_planli }}/{{ s.site_tamamlanan }}/{{ s.site_toplam }}{% endif %}</td>
+      <td>{{ s.site_last_updated or '' }}</td>
+      <td class="nowrap">{% if s.snaps %}{% for p in s.snaps.split(',') %}{% set sid, kind = p.split(':') %}<a href="{{ url_for('raw_snapshot', sid=sid) }}">{{ kind }}</a> {% endfor %}{% endif %}</td>
+      <td class="mah"><small>{{ s.error or '' }}</small></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Yedek — MUSKİ Kesinti Takip{% endblock %}
+{% block content %}
+<h1>Veritabanı ve yedekler</h1>
+<p>Veritabanı: <code>{{ db_path }}</code> ({{ '%.1f'|format(db_size / 1024) }} KB, SQLite).
+  SQLite dosyası tek başına taşınabilir; <a href="https://sqlitebrowser.org/" target="_blank" rel="noopener">DB Browser for SQLite</a> ile açılabilir veya GitHub'a eklenebilir.</p>
+<p><a class="btn" href="{{ url_for('backup_download') }}">Veritabanının şu anki kopyasını indir (.db)</a>
+   <a class="btn light" href="{{ url_for('export', fmt='json') }}">Tüm kayıtları JSON indir</a>
+   <a class="btn light" href="{{ url_for('export', fmt='xlsx') }}">Tüm kayıtları Excel indir</a></p>
+
+<h2>Otomatik günlük yedekler</h2>
+<p class="muted">Her gün otomatik alınır, <code>{{ backup_dir }}</code> klasöründe son {{ keep }} yedek tutulur (gzip'li SQLite).</p>
+<table class="grid small">
+  <thead><tr><th>Dosya</th><th>Boyut</th><th>Tarih</th></tr></thead>
+  <tbody>
+  {% for b in files %}<tr><td><a href="{{ url_for('backup_file', name=b.name) }}">{{ b.name }}</a></td><td>{{ '%.1f'|format(b.size / 1024) }} KB</td><td>{{ b.mtime|dt(true) }}</td></tr>
+  {% else %}<tr><td colspan="3" class="empty">Henüz yedek yok.</td></tr>{% endfor %}
+  </tbody>
+</table>
+{% endblock %}

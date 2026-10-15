@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+{% set show_sort = true %}
+{% include "_filters.html" %}
+
+<div class="toolbar">
+  <div><b>{{ total }}</b> kayıt · <span class="muted">{{ filter_text }}</span></div>
+  <div class="downloads">
+    Filtrelenmiş listeyi indir:
+    <a class="btn" href="{{ url_for('export', fmt='xlsx') }}?{{ qs(sayfa=None) }}">Excel</a>
+    <a class="btn" href="{{ url_for('export', fmt='pdf') }}?{{ qs(sayfa=None) }}">PDF</a>
+    <a class="btn" href="{{ url_for('export', fmt='docx') }}?{{ qs(sayfa=None) }}">Word</a>
+    <a class="btn light" href="{{ url_for('export', fmt='csv') }}?{{ qs(sayfa=None) }}">CSV</a>
+    <a class="btn light" href="{{ url_for('export', fmt='json') }}?{{ qs(sayfa=None) }}">JSON</a>
+  </div>
+</div>
+
+<div class="table-wrap">
+<table class="grid">
+  <thead>
+    <tr>
+      <th>No</th><th>Kayıt türü</th><th>MUSKİ ID<br><small>İş emri</small></th><th>İlçe</th><th>Kesinti tarihi</th>
+      <th>Tahmini süre<br><small>tahmini bitiş</small></th><th>Durum</th><th>Etkilenen mahalleler</th>
+      <th>Bitiş<br><small>(en erken – en geç)</small></th><th>Gerçekleşen süre</th><th>İlk / son görülme</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for o in rows %}
+    <tr class="d-{{ o.durum }}">
+      <td><a href="{{ url_for('detail', oid=o.id) }}">#{{ o.id }}</a></td>
+      <td><span class="tag k-{{ o.source }}">{{ o.kaynak_label }}</span></td>
+      <td>{{ o.muski_id or '—' }}<br><small class="muted">{{ o.ays_is_emri_id or '' }}</small></td>
+      <td>{{ o.ilce }}</td>
+      <td class="nowrap">{{ o.kesinti_tarihi|dt }}</td>
+      <td class="nowrap">{{ o.tahmini_sure_saat|saat or o.tahmini_sure_text or '' }}<br><small class="muted">{{ o.tahmini_bitis|dt }}</small>
+        {% if o.uzatildi %}<br><small class="err">uzatıldı (ilk: {{ o.ilk_ilan_bitis|dt }})</small>{% endif %}</td>
+      <td><span class="pill p-{{ o.durum }}">{{ o.durum_label }}</span>
+        {% if o.is_emri_durum_adi %}<br><small class="muted">İş emri: {{ o.is_emri_durum_adi }}</small>{% endif %}
+        {% if o.sitede %}<br><small class="muted">sitede</small>{% endif %}</td>
+      <td class="mah">{{ o.mahalleler_text }}
+        {% if o.ariza_yeri or o.sebep %}<br><small class="muted">{% if o.ariza_yeri %}Arıza yeri: {{ o.ariza_yeri }}{% endif %}{% if o.sebep %} · {{ o.sebep }}{% endif %}</small>{% endif %}</td>
+      <td class="nowrap">{% if o.bitis_en_gec %}{{ o.bitis_en_erken|dt or '?' }} –<br>{{ o.bitis_en_gec|dt }}{% else %}—{% endif %}</td>
+      <td class="nowrap">{% if o.sure_en_fazla_saat is not none %}
+          {% if o.sure_en_az_saat is not none %}{{ o.sure_en_az_saat|saat }} – {% else %}≤ {% endif %}{{ o.sure_en_fazla_saat|saat }}
+          {% if o.tahmin_asildi %}<br><span class="err">tahmin aşıldı</span>{% endif %}
+        {% else %}—{% endif %}</td>
+      <td class="nowrap"><small>{{ o.first_seen_at|dt }}<br>{{ o.last_seen_at|dt }}</small></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="11" class="empty">Kayıt yok.{% if not st.last %} İlk site ziyareti henüz yapılmadı.{% endif %}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+{% if pages > 1 %}
+<div class="pager">
+  {% for p in range(1, pages + 1) %}
+    {% if p == page %}<b>{{ p }}</b>{% else %}<a href="?{{ qs(sayfa=p) }}">{{ p }}</a>{% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+
+<details class="help">
+  <summary>Sütunlar ne anlama geliyor?</summary>
+  <ul>
+    <li><b>Kayıt türü:</b> <i>Web sitesi</i> = muski.gov.tr'den otomatik toplanan; <i>Mesaj (SMS)</i> = telefona gelen MUSKİ mesajlarından eklenen. İkisi birbirinden bağımsız tutulur (aynı kesinti iki türde de olabilir). SMS kayıtlarında başlangıç saati yazmaz; "tahmini bitiş" mesajda bildirilen saattir.</li>
+    <li><b>MUSKİ ID / İş emri:</b> MUSKİ'nin arka planda kullandığı kesinti kayıt numarası ve iş emri numarası (sitenin ana sayfa JSON servisinden alınır; sayfada görünmez).</li>
+    <li><b>Bitiş (en erken – en geç):</b> MUSKİ gerçek bitiş saatini yayınlamıyor. Site her {{ st.interval }} dakikada bir ziyaret edildiği için, kesintinin "devam ediyor" olarak son görüldüğü an ile "tamamlandı" olarak ilk görüldüğü (ya da siteden kalktığı) an arasında bittiği kesindir.</li>
+    <li><b>Siteden kalktı:</b> "Tamamlandı" etiketi görülmeden listeden kaldırılan kesinti.</li>
+    <li><b>Tahmin aşıldı:</b> Kesinti, en iyimser hesapla bile tahmini süreden uzun sürmüş.</li>
+  </ul>
+</details>
+{% endblock %}

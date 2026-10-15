@@ -1,0 +1,60 @@
+:root { --bg:#f5f7fa; --card:#fff; --line:#d9e0e8; --text:#1d2733; --muted:#6b7785; --accent:#1f4e79;
+         --ok:#1e8449; --err:#c0392b; --warn:#fff4e5; }
+* { box-sizing: border-box; }
+body { margin:0; font:14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--text); }
+a { color:var(--accent); }
+header.top { display:flex; flex-wrap:wrap; gap:1rem; align-items:center; justify-content:space-between;
+             background:var(--accent); color:#fff; padding:.6rem 1rem; }
+header.top a { color:#fff; text-decoration:none; }
+.brand { font-weight:700; font-size:1.1rem; }
+header nav a { margin-left:1rem; opacity:.9; }
+header nav a:hover { opacity:1; text-decoration:underline; }
+.status { display:flex; flex-wrap:wrap; gap:.4rem 1.5rem; padding:.5rem 1rem; background:#e8f0f8; border-bottom:1px solid var(--line); font-size:13px; }
+.status.warn { background:var(--warn); }
+main { padding:1rem; max-width:1600px; margin:0 auto; }
+footer { padding:1rem; text-align:center; color:var(--muted); font-size:12px; }
+h1 { font-size:1.35rem; margin:.3rem 0 1rem; }
+h2 { font-size:1.1rem; margin:1.5rem 0 .5rem; }
+.muted { color:var(--muted); }
+.ok { color:var(--ok); font-weight:600; }
+.err { color:var(--err); font-weight:600; }
+.nowrap { white-space:nowrap; }
+.filters { display:flex; flex-wrap:wrap; gap:.6rem 1rem; align-items:flex-end; background:var(--card);
+           border:1px solid var(--line); border-radius:8px; padding:.8rem; }
+.filters label { display:flex; flex-direction:column; font-size:12px; color:var(--muted); gap:2px; }
+.filters input, .filters select { font:inherit; padding:.35rem .45rem; border:1px solid var(--line); border-radius:5px; min-width:150px; color:var(--text); background:#fff; }
+.buttons { display:flex; gap:.4rem; }
+button, .btn { font:inherit; display:inline-block; padding:.38rem .8rem; border-radius:5px; border:1px solid var(--accent);
+               background:var(--accent); color:#fff; text-decoration:none; cursor:pointer; }
+.btn.light { background:#fff; color:var(--accent); }
+.quick { margin:.5rem 0 1rem; font-size:13px; }
+.toolbar { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.6rem; margin-bottom:.6rem; }
+.downloads .btn { margin-left:.25rem; }
+.table-wrap { overflow-x:auto; }
+table.grid { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); }
+table.grid th, table.grid td { padding:.45rem .55rem; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+table.grid th { background:#eef2f6; font-size:12.5px; position:sticky; top:0; }
+table.grid.small { font-size:13px; }
+table.grid tr:hover td { background:#f8fbff; }
+td.mah { max-width:420px; }
+tr.d-devam td:first-child { border-left:4px solid var(--err); }
+tr.d-tamamlandi td:first-child, tr.d-kalkti td:first-child { border-left:4px solid var(--ok); }
+tr.d-err td { background:#fdecea; }
+.pill { display:inline-block; padding:.08rem .5rem; border-radius:999px; font-size:12px; font-weight:600; color:#fff; background:#7f8c8d; }
+.pill.p-devam { background:var(--err); }
+.pill.p-tamamlandi { background:var(--ok); }
+.pill.p-kalkti { background:#5d6d7e; }
+.tag { font-size:11px; background:#eee; padding:0 .3rem; border-radius:3px; white-space:nowrap; }
+.tag.k-web { background:#dbeafe; color:#1e40af; }
+.tag.k-mesaj { background:#fef3c7; color:#92400e; }
+.pill.p-ilan_bitti { background:#5d6d7e; }
+.empty { text-align:center; color:var(--muted); padding:2rem; }
+.pager { margin:1rem 0; display:flex; flex-wrap:wrap; gap:.5rem; }
+.cols { display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:1rem; }
+table.kv { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); }
+table.kv th { text-align:left; width:38%; background:#eef2f6; font-weight:600; font-size:13px; }
+table.kv th, table.kv td { padding:.4rem .6rem; border-bottom:1px solid var(--line); vertical-align:top; }
+pre { white-space:pre-wrap; word-break:break-all; background:#fff; border:1px solid var(--line); padding:.6rem; font-size:12px; max-height:500px; overflow:auto; }
+details { margin:1rem 0; }
+details.help { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:.6rem 1rem; }
+@media (max-width: 700px) { header nav a { margin:0 .8rem 0 0; } .cols { grid-template-columns:1fr; } .filters input, .filters select { min-width:120px; } }

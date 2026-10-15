@@ -1,0 +1,16 @@
+[Unit]
+Description=MUSKİ Kesinti Takip - site ziyareti (Selenium)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=muskitakip
+Group=muskitakip
+EnvironmentFile=/etc/muskitakip.env
+WorkingDirectory=/opt/muskitakip/app
+ExecStart=/opt/muskitakip/venv/bin/python -m muskitakip.scraper
+TimeoutStartSec=6min
+Nice=10
+MemoryMax=1200M
+PrivateTmp=true

@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+# Çalışan veritabanı ve yedekler (GitHub'a eklemek istersen bu satırları kaldırabilir
+# ya da arayüzden indirdiğin kopyayı data/ altına koyabilirsin)
+data/*.db
+data/*.db-*
+data/backups/
