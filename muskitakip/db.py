@@ -126,6 +126,26 @@ CREATE TABLE IF NOT EXISTS messages (
     imported_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_messages_outage ON messages(outage_id);
+
+-- Telegram'dan "düz" gönderilen, henüz ayıklanmamış ham mesajlar (gelen kutusu).
+CREATE TABLE IF NOT EXISTS inbox (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    text          TEXT NOT NULL,
+    kanal         TEXT NOT NULL DEFAULT 'telegram',
+    received_at   TEXT NOT NULL,               -- bota/sisteme geliş zamanı
+    tg_chat_id    INTEGER,
+    tg_message_id INTEGER,
+    durum         TEXT NOT NULL DEFAULT 'bekliyor',  -- bekliyor / eklendi / kesinti_degil
+    outage_ids    TEXT,                        -- eklendiyse ilişkili kesinti kayıtları ("3,7")
+    note          TEXT,
+    processed_at  TEXT,
+    UNIQUE (tg_chat_id, tg_message_id)
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
 """
 
 

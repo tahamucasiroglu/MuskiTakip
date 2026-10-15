@@ -29,8 +29,8 @@ FULL_COLUMNS = [
     ("Kesinti Türü", "kesinti_turu", 11),
     ("Tür Etiketi", "tur_etiketi", 15),
     ("Etkilenen Mahalleler", "mahalleler_text", 50),
-    ("Arıza Yeri (SMS)", "ariza_yeri", 28),
-    ("Sebep (SMS)", "sebep", 30),
+    ("Kesinti Yeri", "ariza_yeri", 28),
+    ("Sebep", "sebep", 30),
     ("İlk Bildirilen Bitiş (SMS)", lambda o: fmt_dt(o["ilk_ilan_bitis"]), 17),
     ("Sahaya Gönderildi", "sahaya_gonderildi", 9),
     ("Boru Cinsi", "boru_cinsi", 10),
@@ -56,9 +56,9 @@ SHORT_COLUMNS = [
     ("Tahmini Süre /\nBitiş", lambda o: "\n".join(
         x for x in (fmt_hours(o["tahmini_sure_saat"]), fmt_dt(o["tahmini_bitis"])) if x), 1.1),
     ("Durum", "durum_label", 1.1),
+    ("Kesinti Yeri", "ariza_yeri", 1.4),
     ("Etkilenen Mahalleler", lambda o: (o["mahalleler_text"] or "")
-        + (f"\nArıza yeri: {o['ariza_yeri']}" if o.get("ariza_yeri") else "")
-        + (f"\nSebep: {o['sebep']}" if o.get("sebep") else ""), 3.6),
+        + (f"\nSebep: {o['sebep']}" if o.get("sebep") else ""), 3.0),
     ("Bitiş (en geç)", lambda o: fmt_dt(o["bitis_en_gec"]), 1.2),
     ("Süre (en fazla)", lambda o: fmt_hours(o["sure_en_fazla_saat"]), 0.9),
 ]

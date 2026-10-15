@@ -7,12 +7,15 @@ import math
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
-from flask import Flask, Response, abort, render_template, request, send_file
+import os
 
-from . import backup, config, exports, queries
+from flask import Flask, Response, abort, flash, redirect, render_template, request, send_file, url_for
+
+from . import backup, config, exports, inbox, queries, sms
 from .parser import parse_iso
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("MUSKI_WEB_SECRET") or os.urandom(24)
 PAGE_SIZE = 200
 
 
@@ -59,6 +62,7 @@ def status_info(con):
         age = datetime.now(config.TZ) - parse_iso(last_ok["finished_at"] or last_ok["started_at"])
         stale = age > timedelta(minutes=config.SCRAPE_INTERVAL_MIN * 2 + 5)
     return {"last": last, "last_ok": last_ok, "counts": counts, "nscr": nscr, "stale": stale,
+            "inbox_pending": inbox.pending_count(con),
             "interval": config.SCRAPE_INTERVAL_MIN}
 
 
@@ -232,6 +236,106 @@ def backup_file(name):
         if p.name == name:
             return send_file(p, as_attachment=True, download_name=p.name)
     abort(404)
+
+
+INBOX_TABS = {"bekliyor": "Bekleyen", "eklendi": "Eklenen", "kesinti_degil": "Kesinti değil", "tumu": "Tümü"}
+
+
+@app.route("/gelen-kutusu", methods=["GET", "POST"])
+def inbox_page():
+    con = queries.connect()
+    try:
+        if request.method == "POST":  # web'den ham mesaj yapıştırma
+            text = (request.form.get("text") or "").strip()
+            if text:
+                iid, _ = inbox.save(con, text, kanal="web")
+                con.commit()
+                flash(f"Gelen kutusuna kaydedildi (#{iid}).")
+            return redirect(url_for("inbox_page"))
+        tab = request.args.get("durum", "bekliyor")
+        tab = tab if tab in INBOX_TABS else "bekliyor"
+        sql = "SELECT * FROM inbox" + ("" if tab == "tumu" else " WHERE durum=?") + " ORDER BY id DESC LIMIT 300"
+        rows = con.execute(sql, () if tab == "tumu" else (tab,)).fetchall()
+        items = [{"row": r, "pv": inbox.preview(r["text"]),
+                  "ids": [int(x) for x in (r["outage_ids"] or "").split(",") if x]} for r in rows]
+        counts = {r[0]: r[1] for r in con.execute("SELECT durum, COUNT(*) FROM inbox GROUP BY durum")}
+        return render_template("inbox.html", items=items, tab=tab, tabs=INBOX_TABS, counts=counts,
+                               st=status_info(con))
+    finally:
+        con.close()
+
+
+@app.post("/gelen-kutusu/<int:iid>/<action>")
+def inbox_action(iid, action):
+    con = queries.connect()
+    try:
+        if action == "otomatik":
+            res = inbox.auto_process(con, iid)
+            if res.get("ok"):
+                flash(f"#{iid} eklendi → kesinti {', '.join('#' + str(i) for i in res['outage_ids'])} "
+                      f"(yeni {res['yeni_kesinti']}, mevcut kesintiye bağlanan {res['mevcut_kesintiye_eklendi']}, "
+                      f"mükerrer {res['mukerrer']})")
+            else:
+                flash(f"#{iid} otomatik eklenemedi, 'Elle ekle' ile girebilirsin.")
+        elif action == "yoksay":
+            inbox.ignore(con, iid, request.form.get("note") or None)
+            flash(f"#{iid} 'kesinti değil' olarak işaretlendi.")
+        elif action == "geri-al":
+            inbox.reopen(con, iid)
+            flash(f"#{iid} tekrar bekleyenlere alındı (eklenen kesinti kayıtları silinmez).")
+        else:
+            abort(404)
+        con.commit()
+    finally:
+        con.close()
+    return redirect(request.referrer or url_for("inbox_page"))
+
+
+MANUAL_FIELDS = ("tarih", "baslangic", "bitis", "ilce", "yer", "mahalleler", "sebep", "tur", "not")
+
+
+@app.route("/mesaj/yeni", methods=["GET", "POST"])
+def manual_entry():
+    con = queries.connect()
+    try:
+        gelen = request.values.get("gelen", type=int)
+        src = con.execute("SELECT * FROM inbox WHERE id=?", (gelen,)).fetchone() if gelen else None
+        if request.method == "POST":
+            f = {k: (request.form.get(k) or "").strip() for k in MANUAL_FIELDS}
+            form = {k: v for k, v in f.items() if v}
+            if form.get("tarih") and "-" in form["tarih"]:  # <input type=date> -> GG.AA.YYYY
+                y, m, d = form["tarih"].split("-")
+                form["tarih"] = f"{d}.{m}.{y}"
+            res = sms.add_structured(con, form, kanal=f"gelen_kutusu#{gelen}" if src else "web_form",
+                                     received_at=src["received_at"] if src else None,
+                                     raw_text=src["text"] if src else None)
+            if res["durum"] == "hata":
+                flash("Kaydedilmedi: " + "; ".join(res["hatalar"]))
+                return render_template("manual.html", f=f, src=src, st=status_info(con))
+            if src and res["id"]:
+                inbox.link_manual(con, src["id"], res["id"])
+            con.commit()
+            if res["durum"] == "mukerrer":
+                flash("Bu kesinti zaten kayıtlı, tekrar eklenmedi.")
+                return redirect(url_for("detail", oid=res["id"]) if res["id"] else url_for("inbox_page"))
+            flash(f"Kesinti #{res['id']} kaydedildi.")
+            return redirect(url_for("detail", oid=res["id"]))
+        f = {}
+        if src:  # gelen kutusundaki mesajdan ön doldurma
+            pv = inbox.preview(src["text"])
+            m = next((x["parsed"] for x in pv["parcalar"] if x["parsed"]), None)
+            if m:
+                f = {"tarih": m["tarih"], "bitis": f"{m['bitis']:%H:%M}", "yer": m["ariza_yeri"] or "",
+                     "mahalleler": ", ".join(m["etkilenen"]), "sebep": m["sebep"], "tur": m["tur"].lower(),
+                     "baslangic": f"{m['baslangic']:%H:%M}" if m["baslangic"] else ""}
+            else:
+                f = sms.parse_form(src["text"])
+                d = sms._form_date(f.get("tarih", ""))
+                if d:
+                    f["tarih"] = d.date().isoformat()
+        return render_template("manual.html", f=f, src=src, st=status_info(con))
+    finally:
+        con.close()
 
 
 @app.route("/saglik")

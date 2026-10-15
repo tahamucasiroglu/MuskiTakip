@@ -55,3 +55,27 @@ python -m venv .venv && .venv/Scripts/pip install -r requirements.txt
 MUSKI_DATA_DIR=./data .venv/Scripts/python -m muskitakip.scraper   # yerelde Chrome ile tek tarama
 .venv/Scripts/python -m muskitakip.web
 ```
+
+## Telegram botu (@TahaMuskiBot)
+Bot yalnızca sahibine yanıt verir. Sahip, ilk kurulumda Pi'deki gizli `/etc/muskitakip-telegram.env` dosyasındaki
+tek kullanımlık kodla belirlenir: bota `/baslat <kod>` yazılır. Token ve kod repoda tutulmaz.
+
+- **Düz mesaj:** SMS'i olduğu gibi yapıştır → *Gelen Kutusu*'na ham olarak kaydedilir; kesinti kaydı oluşturmaz.
+  Web'deki **Gelen Kutusu** sayfasından *Otomatik ekle* / *Elle ekle* (mesajdan ön doldurulur) / *Kesinti değil* ile ayıklanır.
+  Pi'de komut satırından: `python -m muskitakip.inbox liste|otomatik [ID]|yoksay ID`.
+- **Düzenli mesaj:** `/kesinti` + aşağıdaki satırlar → doğrudan `mesaj` türünde kesinti kaydı (anahtarlar Türkçe karakter
+  ve büyük/küçük harf duyarsız; `tarih` ve `mahalleler` ya da `yer` zorunlu):
+  ```
+  /kesinti
+  tarih: 15.10.2026
+  baslangic: 14:00
+  bitis: 22:00
+  ilce: Fethiye
+  yer: Tuzla Mah. 644 Sokak
+  mahalleler: Babataşı, Menteşeoğlu, Tuzla
+  sebep: Şebeke hattı arızası
+  tur: plansız
+  not:
+  ```
+- Diğer komutlar: `/durum`, `/aktif`, `/kutu`, `/sablon`, `/yardim`.
+- Servis: `muskitakip-telegram.service` (long polling; port açmaz). Log: `journalctl -u muskitakip-telegram -f`.

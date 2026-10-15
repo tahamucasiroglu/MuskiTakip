@@ -15,7 +15,7 @@
   <tr><th>Sitedeki durum</th><td>{{ o.site_durum_text or '' }} <small class="muted">{{ o.site_durum or '' }}</small></td></tr>
   <tr><th>Etkilenen mahalleler</th><td>{{ o.mahalleler_text }}</td></tr>
   <tr><th>Kayıt türü</th><td>{{ o.kaynak_label }}</td></tr>
-  {% if o.ariza_yeri %}<tr><th>Arıza yeri</th><td>{{ o.ariza_yeri }}</td></tr>{% endif %}
+  {% if o.ariza_yeri %}<tr><th>Kesinti yeri</th><td>{{ o.ariza_yeri }}</td></tr>{% endif %}
   {% if o.sebep %}<tr><th>Sebep</th><td>{{ o.sebep }}</td></tr>{% endif %}
   {% if o.uzatildi %}<tr><th>İlk bildirilen bitiş</th><td>{{ o.ilk_ilan_bitis|dt }} <span class="err">(sonradan uzatıldı)</span></td></tr>{% endif %}
   {% if o.notes %}<tr><th>Not</th><td>{{ o.notes }}</td></tr>{% endif %}

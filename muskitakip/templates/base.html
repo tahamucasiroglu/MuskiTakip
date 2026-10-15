@@ -13,6 +13,8 @@
     <a href="{{ url_for('index') }}">Kesintiler</a>
     <a href="{{ url_for('stats') }}">İstatistik</a>
     <a href="{{ url_for('scrapes') }}">Site ziyaretleri</a>
+    <a href="{{ url_for('inbox_page') }}">Gelen Kutusu{% if st and st.inbox_pending %} <span class="badge">{{ st.inbox_pending }}</span>{% endif %}</a>
+    <a href="{{ url_for('manual_entry') }}">+ Mesaj ekle</a>
     <a href="{{ url_for('backups') }}">Yedek / Veritabanı</a>
   </nav>
 </header>
@@ -31,6 +33,7 @@
 </div>
 {% endif %}
 <main>
+{% with msgs = get_flashed_messages() %}{% for m in msgs %}<div class="flash">{{ m }}</div>{% endfor %}{% endwith %}
 {% block content %}{% endblock %}
 </main>
 <footer>Kaynak: <a href="https://www.muski.gov.tr/su-kesintileri" target="_blank" rel="noopener">muski.gov.tr/su-kesintileri</a> · her {{ st.interval if st else 15 }} dakikada bir otomatik kaydedilir.</footer>

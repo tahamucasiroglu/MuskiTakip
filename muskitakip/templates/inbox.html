@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Gelen Kutusu — MUSKİ Kesinti Takip{% endblock %}
+{% block content %}
+<h1>Gelen Kutusu</h1>
+<p class="muted">Telegram botuna "düz" gönderilen (ya da buraya yapıştırılan) ham mesajlar. Ayıklanana kadar kesinti kaydı oluşturmazlar.
+  <b>Otomatik ekle</b> MUSKİ SMS kalıbını okuyup kesinti kaydı oluşturur (mükerrer/devam mesajlarını birleştirir);
+  okunamayanlar için <b>Elle ekle</b> formu mesajdan ön doldurulur.</p>
+
+<div class="tabs">
+  {% for k, v in tabs.items() %}<a class="{{ 'active' if tab == k }}" href="?durum={{ k }}">{{ v }}{% if k != 'tumu' %} ({{ counts.get(k, 0) }}){% endif %}</a>{% endfor %}
+</div>
+
+{% for it in items %}{% set r = it.row %}
+<div class="inbox-item">
+  <div><b>#{{ r.id }}</b> · {{ r.received_at|dt(true) }} · {{ r.kanal }}
+    · {% if r.durum == 'bekliyor' %}<span class="err">bekliyor</span>{% elif r.durum == 'eklendi' %}<span class="ok">eklendi</span>{% else %}kesinti değil{% endif %}
+    {% for i in it.ids %} <a href="{{ url_for('detail', oid=i) }}">→ kesinti #{{ i }}</a>{% endfor %}
+    {% if r.note %}<small class="muted"> · {{ r.note }}</small>{% endif %}</div>
+  <pre>{{ r.text }}</pre>
+  {% for p in it.pv.parcalar %}
+    {% if p.parsed %}<div><small>✔ Okunabiliyor: <b>{{ p.parsed.ariza_yeri or '?' }}</b> · {{ p.parsed.tarih }} · bitiş {{ p.parsed.bitis.strftime('%d.%m %H:%M') }} · {{ p.parsed.etkilenen|join(', ') }} · {{ p.parsed.sebep }} ({{ p.parsed.tip }})</small></div>
+    {% elif p.kesinti %}<div><small class="err">✖ Kesinti mesajı gibi ama otomatik okunamadı.</small></div>
+    {% else %}<div><small class="muted">– Su kesintisi mesajına benzemiyor.</small></div>{% endif %}
+  {% endfor %}
+  <div class="actions">
+  {% if r.durum == 'bekliyor' %}
+    {% if it.pv.otomatik_eklenebilir %}<form method="post" action="{{ url_for('inbox_action', iid=r.id, action='otomatik') }}"><button>Otomatik ekle</button></form>{% endif %}
+    <a class="btn light" href="{{ url_for('manual_entry', gelen=r.id) }}">Elle ekle</a>
+    <form method="post" action="{{ url_for('inbox_action', iid=r.id, action='yoksay') }}"><button class="light btn">Kesinti değil</button></form>
+  {% else %}
+    <form method="post" action="{{ url_for('inbox_action', iid=r.id, action='geri-al') }}"><button class="light btn">Bekleyenlere geri al</button></form>
+  {% endif %}
+  </div>
+</div>
+{% else %}
+<p class="empty">Bu sekmede mesaj yok.</p>
+{% endfor %}
+
+<h2>Buraya mesaj yapıştır</h2>
+<form method="post">
+  <textarea class="paste" name="text" placeholder="SMS metnini yapıştır (birden fazla SMS olabilir)"></textarea>
+  <p><button>Gelen kutusuna kaydet</button></p>
+</form>
+{% endblock %}

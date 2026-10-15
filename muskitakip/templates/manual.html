@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Mesaj ekle — MUSKİ Kesinti Takip{% endblock %}
+{% block content %}
+<h1>Mesaj kaydı ekle (elle)</h1>
+<p class="muted">Kayıt türü <b>Mesaj</b> olarak eklenir. Telegram'da aynı alanları <code>/kesinti</code> kalıbıyla da gönderebilirsin.</p>
+{% if src %}
+<p>Gelen kutusu mesajı <b>#{{ src.id }}</b> ({{ src.received_at|dt(true) }}) — kaydedince bu mesaj "eklendi" olarak işaretlenir:</p>
+<pre>{{ src.text }}</pre>
+{% endif %}
+<form method="post" class="manual">
+  {% if src %}<input type="hidden" name="gelen" value="{{ src.id }}">{% endif %}
+  <label>Tarih *<input type="date" name="tarih" value="{{ f.tarih or '' }}" required></label>
+  <label>Başlangıç saati<input type="time" name="baslangic" value="{{ f.baslangic or '' }}"></label>
+  <label>Bitiş saati (bildirilen)<input type="time" name="bitis" value="{{ f.bitis or '' }}"></label>
+  <label>İlçe<input name="ilce" value="{{ f.ilce or 'FETHİYE' }}"></label>
+  <label class="wide">Kesinti yeri<input name="yer" value="{{ f.yer or '' }}" placeholder="örn. Tuzla Mah. 644 Sokak"></label>
+  <label class="wide">Etkilenen mahalleler * (virgülle)<input name="mahalleler" value="{{ f.mahalleler or '' }}" placeholder="örn. Babataşı, Tuzla"></label>
+  <label>Sebep<input name="sebep" value="{{ f.sebep or '' }}" placeholder="örn. Şebeke hattı arızası"></label>
+  <label>Tür
+    <select name="tur">
+      <option value="plansız" {{ 'selected' if (f.tur or '')|lower != 'planlı' }}>Plansız (arıza)</option>
+      <option value="planlı" {{ 'selected' if (f.tur or '')|lower == 'planlı' }}>Planlı</option>
+    </select>
+  </label>
+  <label class="wide">Not<textarea name="not" rows="2">{{ f['not'] or '' }}</textarea></label>
+  <div class="wide"><button>Kaydet</button> <a class="btn light" href="{{ url_for('inbox_page') }}">Vazgeç</a></div>
+</form>
+{% endblock %}

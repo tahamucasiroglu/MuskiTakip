@@ -191,7 +191,7 @@ def import_messages(con, texts: list[str], kanal="toplu_ice_aktarim", received_a
     """Mesajları (eskiden yeniye sıralı) ekler. Tekrar çalıştırmak güvenlidir."""
     now = db.now_iso()
     stats = {"toplam": len(texts), "kesinti_disi": 0, "anlasilamadi": 0, "mukerrer": 0,
-             "yeni_kesinti": 0, "mevcut_kesintiye_eklendi": 0, "anlasilamayanlar": []}
+             "yeni_kesinti": 0, "mevcut_kesintiye_eklendi": 0, "anlasilamayanlar": [], "outage_ids": []}
     batch_seen = set()
     for text in texts:
         if not is_outage(text):
@@ -204,6 +204,8 @@ def import_messages(con, texts: list[str], kanal="toplu_ice_aktarim", received_a
             continue
         existing_msg = con.execute("SELECT id, outage_id FROM messages WHERE text_sha256=?", (msg["sha"],)).fetchone()
         if existing_msg:
+            if existing_msg["outage_id"] and existing_msg["outage_id"] not in stats["outage_ids"]:
+                stats["outage_ids"].append(existing_msg["outage_id"])
             # Aynı aktarımda tekrar gelen mesaj sayılır; önceki aktarımlardan bilinen mesaj tekrar sayılmaz.
             if msg["sha"] in batch_seen:
                 con.execute("UPDATE messages SET adet=adet+1 WHERE id=?", (existing_msg["id"],))
@@ -244,11 +246,129 @@ def import_messages(con, texts: list[str], kanal="toplu_ice_aktarim", received_a
             _event(con, oid, now, "yeni", "kaynak", None, f"mesaj ({kanal})")
             stats["yeni_kesinti"] += 1
         _set_neighborhoods(con, oid, msg["etkilenen"])
+        if oid not in stats["outage_ids"]:
+            stats["outage_ids"].append(oid)
         con.execute("INSERT INTO messages(outage_id, text, text_sha256, tip, mesaj_tarihi, ilan_bitis, received_at, "
                     "kanal, imported_at) VALUES (?,?,?,?,?,?,?,?,?)",
                     (oid, msg["text"], msg["sha"], msg["tip"], msg["tarih"], _iso(msg["bitis"]), received_at, kanal, now))
     refresh_status(con)
     return stats
+
+
+# --------------------------------------------------------------------------- düzenli (kalıplı) giriş
+
+FORM_TEMPLATE = """/kesinti
+tarih: 15.10.2026
+baslangic: 14:00
+bitis: 22:00
+ilce: Fethiye
+yer: Tuzla Mah. 644 Sokak
+mahalleler: Babataşı, Menteşeoğlu, Tuzla
+sebep: Şebeke hattı arızası
+tur: plansız
+not:"""
+
+FORM_KEYS = {  # katlanmış anahtar -> alan
+    "TARIH": "tarih", "GUN": "tarih",
+    "BASLANGIC": "baslangic", "BASLAMA": "baslangic", "BASLANGIC SAATI": "baslangic", "SAAT": "baslangic",
+    "BITIS": "bitis", "BITIS SAATI": "bitis", "KADAR": "bitis",
+    "ILCE": "ilce",
+    "YER": "yer", "KESINTI YERI": "yer", "ARIZA YERI": "yer", "KONUM": "yer", "ADRES": "yer",
+    "MAHALLELER": "mahalleler", "MAHALLE": "mahalleler", "ETKILENEN": "mahalleler",
+    "ETKILENEN MAHALLELER": "mahalleler",
+    "SEBEP": "sebep", "NEDEN": "sebep",
+    "TUR": "tur", "KESINTI TURU": "tur",
+    "NOT": "not", "ACIKLAMA": "not",
+}
+
+
+def _fold(text):
+    from .queries import fold
+    return fold(text)
+
+
+def parse_form(text: str) -> dict:
+    """'anahtar: değer' satırlarını alanlara çevirir (Türkçe karakter/büyük-küçük harf duyarsız)."""
+    out = {}
+    for line in text.splitlines():
+        m = re.match(r"\s*([^:=]+?)\s*[:=]\s*(.*)$", line)
+        if not m:
+            continue
+        key = FORM_KEYS.get(_fold(m.group(1)))
+        if key and clean(m.group(2)):
+            out[key] = clean(m.group(2))
+    return out
+
+
+def _form_date(text):
+    m = re.search(r"(\d{1,2})[./-](\d{1,2})[./-](\d{4})", text) or None
+    if m:
+        return datetime(int(m.group(3)), int(m.group(2)), int(m.group(1)), tzinfo=config.TZ)
+    m = re.search(r"(\d{4})-(\d{2})-(\d{2})", text)
+    if m:
+        return datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)), tzinfo=config.TZ)
+    return None
+
+
+def _form_time(day, text):
+    m = re.search(r"(\d{1,2})[.:](\d{2})", text or "")
+    return _time(day, f"{m.group(1)}.{m.group(2)}") if m else None
+
+
+def add_structured(con, form: dict, kanal="telegram_form", received_at=None, raw_text=None) -> dict:
+    """Kalıplı girişten 'mesaj' türünde kesinti ekler. Dönüş: {'durum': yeni|mukerrer|hata, 'id', 'hatalar'}."""
+    errors = []
+    day = _form_date(form.get("tarih", ""))
+    if not day:
+        errors.append("tarih eksik ya da anlaşılamadı (örn. 15.10.2026)")
+    mahalleler = _split_names(tr_upper(form.get("mahalleler", "")))
+    yer = clean(form.get("yer", "")) or None
+    if yer:  # SMS kayıtlarıyla aynı biçim: "TUZLA Mah. 644 SOKAK"
+        yer = clean(re.sub(r"\bMAH(?:ALLESİ)?\b\.?", "Mah.", tr_upper(yer)))
+    if not mahalleler and yer:
+        m = re.match(r"(.+?)\s+MAH", tr_upper(yer))
+        if m:
+            mahalleler = [clean(m.group(1))]
+    if not mahalleler:
+        errors.append("mahalleler eksik")
+    if errors:
+        return {"durum": "hata", "id": None, "hatalar": errors}
+    start = _form_time(day, form.get("baslangic"))
+    end = _form_time(day, form.get("bitis"))
+    if start and end and end <= start:
+        end += timedelta(days=1)
+    tur_txt = _fold(form.get("tur", ""))
+    tur = "Planlı" if tur_txt.startswith("PLANLI") else "Plansız"
+    ilce = tr_upper(form.get("ilce", "")) or DEFAULT_ILCE
+    kesinti_tarihi = _iso(start) if start else day.date().isoformat()
+
+    raw = raw_text or "\n".join(f"{k}: {v}" for k, v in form.items())
+    sha = norm_sha(raw)
+    if con.execute("SELECT 1 FROM messages WHERE text_sha256=?", (sha,)).fetchone():
+        return {"durum": "mukerrer", "id": None, "hatalar": []}
+    dup = con.execute("SELECT id FROM outages WHERE source='mesaj' AND substr(kesinti_tarihi,1,10)=? "
+                      "AND COALESCE(ariza_yeri,'')=COALESCE(?,'') AND COALESCE(tahmini_bitis,'')=COALESCE(?,'') "
+                      "AND mahalleler_text=?",
+                      (day.date().isoformat(), yer, _iso(end), ", ".join(mahalleler))).fetchone()
+    if dup:
+        return {"durum": "mukerrer", "id": dup["id"], "hatalar": []}
+
+    now = db.now_iso()
+    sure = round((end - start).total_seconds() / 3600, 2) if start and end else None
+    cur = con.execute(
+        "INSERT INTO outages(source, ilce, kesinti_tarihi, kesinti_tarihi_raw, tahmini_sure_saat, tahmini_bitis, "
+        "ilk_ilan_bitis, kesinti_turu, durum, ariza_yeri, sebep, sms_text, mahalleler_text, notes, created_at, updated_at) "
+        "VALUES ('mesaj',?,?,?,?,?,?,?,'devam',?,?,?,?,?,?,?)",
+        (ilce, kesinti_tarihi, form.get("tarih"), sure, _iso(end), _iso(end), tur, yer, form.get("sebep"), raw, "",
+         form.get("not") or (None if start else "Başlangıç saati girilmedi."), now, now))
+    oid = cur.lastrowid
+    _event(con, oid, now, "yeni", "kaynak", None, f"mesaj ({kanal})")
+    _set_neighborhoods(con, oid, mahalleler)
+    con.execute("INSERT INTO messages(outage_id, text, text_sha256, tip, mesaj_tarihi, ilan_bitis, received_at, kanal, "
+                "imported_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (oid, raw, sha, "form", day.date().isoformat(), _iso(end), received_at, kanal, now))
+    refresh_status(con)
+    return {"durum": "yeni", "id": oid, "hatalar": []}
 
 
 def main():

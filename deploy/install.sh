@@ -33,10 +33,16 @@ fi
 
 [ -f /etc/muskitakip.env ] || install -m 644 "$APP/deploy/muskitakip.env" /etc/muskitakip.env
 for u in muskitakip-scraper.service muskitakip-scraper.timer muskitakip-web.service \
-         muskitakip-backup.service muskitakip-backup.timer; do
+         muskitakip-backup.service muskitakip-backup.timer muskitakip-telegram.service; do
   install -m 644 "$APP/deploy/$u" "/etc/systemd/system/$u"
 done
 systemctl daemon-reload
 systemctl enable --now muskitakip-web.service muskitakip-scraper.timer muskitakip-backup.timer
 systemctl restart muskitakip-web.service
+# Telegram botu yalnızca gizli ayar dosyası varsa (MUSKI_TG_TOKEN, MUSKI_TG_CLAIM_CODE) çalışır.
+if [ -f /etc/muskitakip-telegram.env ]; then
+  chown root:muskitakip /etc/muskitakip-telegram.env && chmod 640 /etc/muskitakip-telegram.env
+  systemctl enable muskitakip-telegram.service
+  systemctl restart muskitakip-telegram.service
+fi
 echo "Kurulum tamam. Arayüz: http://$(hostname -I | awk '{print $1}'):5090"

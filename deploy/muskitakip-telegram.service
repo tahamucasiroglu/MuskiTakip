@@ -1,0 +1,19 @@
+[Unit]
+Description=MUSKİ Kesinti Takip - Telegram botu
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/muskitakip-telegram.env
+
+[Service]
+User=muskitakip
+Group=muskitakip
+EnvironmentFile=/etc/muskitakip.env
+EnvironmentFile=/etc/muskitakip-telegram.env
+WorkingDirectory=/opt/muskitakip/app
+ExecStart=/opt/muskitakip/venv/bin/python -m muskitakip.telegram_bot
+Restart=always
+RestartSec=10
+MemoryMax=200M
+
+[Install]
+WantedBy=multi-user.target
