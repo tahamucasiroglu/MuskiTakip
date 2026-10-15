@@ -115,3 +115,31 @@ def test_sms_reimport_keeps_count(con):
     sms.import_messages(con, [t, t])
     sms.import_messages(con, [t, t])
     assert con.execute("SELECT adet FROM messages").fetchone()[0] == 2
+
+
+SITE_ERROR_HTML = HTML[:HTML.index('<div class="outages-detail__grid" id="outagesGrid">')] + (
+    '<div class="outages-detail__grid" id="outagesGrid"><div style="grid-column: 1 / -1"><i></i> '
+    'Servis ile iletişim kurulamadığı için bilgiler şu anda alınamıyor. Lütfen daha sonra tekrar deneyiniz.</div></div>'
+    '</div></section></main></body></html>')
+
+
+def test_site_error_page_does_not_mark_gone(con):
+    def run(html, api):
+        sid = con.execute("INSERT INTO scrapes(started_at) VALUES (?)", (db.now_iso(),)).lastrowid
+        errs = []
+        return scraper.process(con, sid, html, api, db.now_iso(), errs), errs, sid
+    run(HTML, API)
+    page = parse_page(SITE_ERROR_HTML)
+    assert page["cards"] == [] and "iletişim kurulamad" in page["site_error"]
+    r, errs, _ = run(SITE_ERROR_HTML, API)
+    assert r["gone"] == 0 and r["site_error"] and any("hata gösteriyor" in e for e in errs)
+    assert con.execute("SELECT COUNT(*) FROM outages WHERE gone_at IS NOT NULL").fetchone()[0] == 0
+
+
+def test_undo_gone(con):
+    sid0 = con.execute("INSERT INTO scrapes(started_at) VALUES (?)", (db.now_iso(),)).lastrowid
+    scraper.process(con, sid0, HTML, API, db.now_iso())
+    sid = con.execute("INSERT INTO scrapes(started_at) VALUES (?)", (db.now_iso(),)).lastrowid
+    scraper.mark_gone(con, sid, db.now_iso(), set())
+    assert scraper.undo_gone(con, sid, "test") == 15
+    assert con.execute("SELECT COUNT(*) FROM outages WHERE gone_at IS NOT NULL OR durum='kalkti'").fetchone()[0] == 0

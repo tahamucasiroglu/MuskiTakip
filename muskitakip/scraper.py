@@ -362,7 +362,12 @@ def process(con, scrape_id, html: str | None, api_text: str | None, now: str, er
             api = parse_api(api_text)
         except (ValueError, TypeError, AttributeError) as e:
             errors.append(f"API yanıtı JSON değil / beklenmeyen biçim: {type(e).__name__}: {e}"[:500])
-    grid_ok = bool(html) and ('id="outagesGrid"' in html)
+    grid_ok = bool(page and page["grid_found"])
+    site_error = page and page["site_error"]
+    if site_error:
+        errors.append(f"MUSKİ sitesi kesinti listesi yerine hata gösteriyor: {site_error}")
+        log.warning("MUSKİ sitesi hata gösteriyor (kesintiler 'kalktı' sayılmayacak): %s", site_error)
+        logsetup.debug_dump("site-hata-mesaji", html, "html")
 
     items = list(api["items"]) if api else []
     used_items = set()
@@ -400,9 +405,15 @@ def process(con, scrape_id, html: str | None, api_text: str | None, now: str, er
         logsetup.debug_dump("grid-yok", html or "", "html")
     if stats["error"]:
         log.warning("%s kayıt işlenemediği için siteden kalkma kontrolü bu turda atlandı", stats["error"])
-    if page and grid_ok and not stats["error"]:
+    active_in_api = [it for it in items if not it["tamamlandi"]]
+    if page and grid_ok and not stats["error"] and not site_error:
         toplam = page["summary"].get("Toplam")
-        if page["cards"] or toplam == 0 or toplam is None:
+        if page["cards"]:
+            stats["gone"] = mark_gone(con, scrape_id, now, used_ids)
+        elif active_in_api:
+            log.warning("Sayfa 'kesinti yok' diyor ama API'de %s devam eden kesinti var; kalkma kontrolü atlandı",
+                        len(active_in_api))
+        elif toplam in (0, None):
             stats["gone"] = mark_gone(con, scrape_id, now, used_ids)
         else:
             log.warning("Sayfada kart yok ama özet Toplam=%s; kalkma kontrolü atlandı", toplam)
@@ -410,7 +421,7 @@ def process(con, scrape_id, html: str | None, api_text: str | None, now: str, er
         log.warning("Özet Toplam=%s ama %s kart ayrıştırıldı (sayfa yapısı değişmiş olabilir)",
                     page["summary"].get("Toplam"), len(page["cards"]))
         logsetup.debug_dump("kart-sayisi-uyusmuyor", html, "html")
-    return {"page": page, "api": api, **stats}
+    return {"page": page, "api": api, "site_error": site_error, **stats}
 
 
 def run() -> int:
@@ -435,10 +446,10 @@ def run() -> int:
         page, api = result["page"], result["api"]
         summ = page["summary"] if page else {}
         con.execute(
-            "UPDATE scrapes SET finished_at=?, ok=1, method=?, error=?, html_count=?, api_count=?, new_count=?, "
+            "UPDATE scrapes SET finished_at=?, ok=?, method=?, error=?, html_count=?, api_count=?, new_count=?, "
             "changed_count=?, gone_count=?, site_plansiz=?, site_planli=?, site_tamamlanan=?, site_toplam=?, "
             "site_last_updated=?, html_sha256=?, api_sha256=? WHERE id=?",
-            (db.now_iso(), fetched["method"], "\n".join(errors) or None,
+            (db.now_iso(), 0 if result["site_error"] else 1, fetched["method"], "\n".join(errors) or None,
              len(page["cards"]) if page else None, len(api["items"]) if api else None,
              result["new"], result["changed"], result["gone"],
              summ.get("Plansız Kesinti"), summ.get("Planlı Kesinti"), summ.get("Tamamlanan"), summ.get("Toplam"),
@@ -463,8 +474,35 @@ def run() -> int:
         con.close()
 
 
+def undo_gone(con, scrape_id: int, reason: str) -> int:
+    """Bir taramanın hatalı 'siteden kalktı' işaretlerini geri alır; düzeltme kayıt geçmişine yazılır."""
+    now = db.now_iso()
+    rows = con.execute("SELECT e.outage_id, e.at, e.old_value, o.gone_at, o.durum FROM outage_events e "
+                       "JOIN outages o ON o.id=e.outage_id WHERE e.scrape_id=? AND e.event='siteden_kalkti'",
+                       (scrape_id,)).fetchall()
+    n = 0
+    for r in rows:
+        if r["gone_at"] != r["at"]:
+            continue  # sonradan zaten değişmiş
+        con.execute("UPDATE outages SET gone_at=NULL, durum=?, updated_at=? WHERE id=?",
+                    (r["old_value"], now, r["outage_id"]))
+        add_event(con, r["outage_id"], scrape_id, now, "duzeltme", "durum", r["durum"],
+                  f"{r['old_value']} (tarama #{scrape_id} kalkma işareti geri alındı: {reason})")
+        n += 1
+    con.execute("UPDATE scrapes SET ok=0, gone_count=0, error=COALESCE(error || char(10), '') || ? WHERE id=?",
+                (f"Düzeltme ({now}): {reason}; {n} kalkma işareti geri alındı", scrape_id))
+    log.warning("Tarama #%s: %s kalkma işareti geri alındı (%s)", scrape_id, n, reason)
+    return n
+
+
 def main():
     logsetup.setup("scraper")
+    if len(sys.argv) >= 3 and sys.argv[1] == "--geri-al-kalkma":
+        con = db.connect()
+        n = undo_gone(con, int(sys.argv[2]), " ".join(sys.argv[3:]) or "elle düzeltme")
+        con.commit()
+        print(f"{n} kayıt düzeltildi")
+        return
     sys.exit(run())
 
 

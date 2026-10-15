@@ -95,12 +95,25 @@ def parse_page(html: str) -> dict:
     for idx, card in enumerate(soup.select(".outage-detail-card")):
         cards.append(parse_card(card, idx))
 
+    # Kart yoksa listede ne yazdığına bak: MUSKİ servisi çöktüğünde "Servis ile iletişim kurulamadığı için
+    # bilgiler şu anda alınamıyor" yazıyor ve özet 0 gösteriyor. Bu "kesinti kalmadı" demek DEĞİLDİR.
+    grid = soup.select_one("#outagesGrid") or soup.select_one('[data-part="grid"]')
+    grid_message = clean(grid.get_text(" ")) if grid is not None and not cards else ""
+    site_error = None
+    if grid is not None and not cards:
+        legit_empty = re.search(r"BULUNMU|BULUNMAMAKTA|KESİNTİ YOK|AKTİF .*YOK", norm_upper(grid_message))
+        if not legit_empty:
+            site_error = grid_message or "Kesinti listesi boş geldi (açıklama yok)"
+
     return {
         "summary": summary,
         "last_updated": clean(last_updated.get_text()) if last_updated else None,
         "correlation_id": correlation.get("data-correlation-id") if correlation else None,
         "regions": [clean(o.get_text()) for o in soup.select("#regionFilter option") if o.get("value")],
         "cards": cards,
+        "grid_found": grid is not None,
+        "grid_message": grid_message,
+        "site_error": site_error,
     }
 
 
