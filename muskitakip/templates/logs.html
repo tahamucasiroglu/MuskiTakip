@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Loglar — MUSKİ Kesinti Takip{% endblock %}
+{% block content %}
+<h1>Loglar</h1>
+<p class="muted">Her bileşen kendi dosyasına yazar (<code>{{ log_dir }}</code>, her gece döner, eski günler <code>.log.YYYY-AA-GG</code> olarak saklanır):
+  <b>scraper</b> = site ziyaretleri, <b>web</b> = bu arayüz, <b>telegram</b> = bot, <b>backup</b> = yedekler, <b>sms</b>/<b>inbox</b> = komut satırı aktarımları.
+  Pi'de aynı kayıtlar <code>journalctl -u muskitakip-scraper</code> vb. ile de görülebilir.</p>
+
+<form class="filters" method="get">
+  <label>Dosya
+    <select name="dosya">
+      <option value="">Tüm bileşenler — son 7 günün uyarı/hataları</option>
+      {% for p in files %}<option value="{{ p.name }}" {{ 'selected' if name == p.name }}>{{ p.name }} ({{ '%.0f'|format(p.stat().st_size / 1024) }} KB)</option>{% endfor %}
+    </select>
+  </label>
+  <label>En düşük seviye
+    <select name="seviye">
+      <option value="">{{ 'Uyarı ve üstü' if not name else 'Tümü' }}</option>
+      {% for l in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'] %}<option value="{{ l }}" {{ 'selected' if level == l }}>{{ l }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Ara<input name="q" value="{{ q }}" placeholder="örn. Tarama #12, Traceback"></label>
+  <label>Adet<input name="adet" type="number" value="{{ limit }}" min="10" max="5000"></label>
+  <div class="buttons"><button>Göster</button>
+    {% if name %}<a class="btn light" href="{{ url_for('log_download', name=name) }}">Dosyayı indir</a>{% endif %}</div>
+</form>
+
+<p><b>{{ total }}</b> kayıt{% if total > limit %} (en yeni {{ limit }} gösteriliyor){% endif %}.</p>
+<div class="table-wrap">
+<table class="grid small logs">
+  <thead><tr><th>Zaman</th><th>Seviye</th><th>Bileşen</th><th>Mesaj</th></tr></thead>
+  <tbody>
+  {% for r in records %}
+    <tr class="lv-{{ r.level }}">
+      <td class="nowrap">{{ r.time }}</td>
+      <td>{{ r.level }}</td>
+      <td class="nowrap"><small>{{ r.name }}<br>{{ r.file }}</small></td>
+      <td class="mah">{{ r.msg }}{% if r.extra %}<details><summary>ayrıntı ({{ r.extra|length }} satır)</summary><pre>{{ r.extra|join('\n') }}</pre></details>{% endif %}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4" class="empty">Kayıt yok{% if not name %} — son 7 günde uyarı/hata yok 👍{% endif %}.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+{% if failed %}
+<h2>Son başarısız site ziyaretleri</h2>
+<table class="grid small">
+  <thead><tr><th>#</th><th>Başlangıç</th><th>Hata</th></tr></thead>
+  <tbody>{% for s in failed %}<tr><td>{{ s.id }}</td><td class="nowrap">{{ s.started_at|dt(true) }}</td><td class="mah"><pre>{{ s.error or '' }}</pre></td></tr>{% endfor %}</tbody>
+</table>
+{% endif %}
+
+<h2>Hata anı dosyaları</h2>
+<p class="muted">Selenium hata verdiğinde ya da sayfa yapısı beklenmedik göründüğünde o anki ekran görüntüsü / sayfa kaynağı burada saklanır (son {{ 60 }}).</p>
+<ul>
+  {% for d in dumps %}<li><a href="{{ url_for('log_download', name=d.name) }}">{{ d.name }}</a> ({{ '%.0f'|format(d.stat().st_size / 1024) }} KB)</li>
+  {% else %}<li class="muted">Yok.</li>{% endfor %}
+</ul>
+{% endblock %}

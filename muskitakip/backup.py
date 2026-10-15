@@ -63,9 +63,13 @@ def prune():
 
 
 def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-                        stream=sys.stdout)
-    path = make_backup()
+    from . import logsetup
+    logsetup.setup("backup")
+    try:
+        path = make_backup()
+    except Exception:
+        log.exception("Yedek alınamadı")
+        raise
     log.info("Yedek alındı: %s (%d bayt)", path, path.stat().st_size)
 
 

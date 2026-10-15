@@ -12,12 +12,44 @@ import re
 
 from flask import Flask, Response, abort, flash, redirect, render_template, request, send_file, url_for
 
-from . import backup, config, exports, inbox, queries, sms
+import logging
+import time
+
+from flask import g
+from werkzeug.exceptions import HTTPException
+
+from . import backup, config, exports, inbox, logsetup, queries, sms
+
+log = logging.getLogger("muskitakip.web")
 from .parser import parse_iso
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("MUSKI_WEB_SECRET") or os.urandom(24)
 PAGE_SIZE = 200
+
+
+@app.before_request
+def _start_timer():
+    g.t0 = time.monotonic()
+
+
+@app.after_request
+def _access_log(resp):
+    if not request.path.startswith("/static"):
+        log.info("%s %s %s %.0fms %s", request.method, request.full_path.rstrip("?"), resp.status_code,
+                 (time.monotonic() - g.get("t0", time.monotonic())) * 1000, request.remote_addr)
+    return resp
+
+
+@app.errorhandler(Exception)
+def _error(e):
+    if isinstance(e, HTTPException):
+        return e
+    ref = time.strftime("%Y%m%d-%H%M%S")
+    log.exception("Sayfa hatası [%s] %s %s form=%s", ref, request.method, request.full_path,
+                  {k: v[:200] for k, v in request.form.items()})
+    return (f"<h1>Beklenmeyen hata</h1><p>Hata kaydı: <b>{ref}</b> — ayrıntısı <a href='/loglar?seviye=ERROR'>"
+            f"Loglar</a> sayfasında.</p><p><a href='/'>Ana sayfa</a></p>"), 500
 
 
 @app.template_filter("dt")
@@ -62,7 +94,12 @@ def status_info(con):
     if last_ok:
         age = datetime.now(config.TZ) - parse_iso(last_ok["finished_at"] or last_ok["started_at"])
         stale = age > timedelta(minutes=config.SCRAPE_INTERVAL_MIN * 2 + 5)
+    try:
+        problems = len(logsetup.recent_problems(24, "ERROR"))
+    except OSError:
+        problems = 0
     return {"last": last, "last_ok": last_ok, "counts": counts, "nscr": nscr, "stale": stale,
+            "errors_24h": problems,
             "inbox_pending": inbox.pending_count(con),
             "interval": config.SCRAPE_INTERVAL_MIN}
 
@@ -272,6 +309,7 @@ def inbox_action(iid, action):
     try:
         if action == "otomatik":
             res = inbox.auto_process(con, iid)
+            log.info("Gelen kutusu #%s otomatik: %s", iid, res)
             if res.get("ok"):
                 flash(f"#{iid} eklendi → kesinti {', '.join('#' + str(i) for i in res['outage_ids'])} "
                       f"(yeni {res['yeni_kesinti']}, mevcut kesintiye bağlanan {res['mevcut_kesintiye_eklendi']}, "
@@ -280,9 +318,11 @@ def inbox_action(iid, action):
                 flash(f"#{iid} otomatik eklenemedi, 'Elle ekle' ile girebilirsin.")
         elif action == "yoksay":
             inbox.ignore(con, iid, request.form.get("note") or None)
+            log.info("Gelen kutusu #%s kesinti değil olarak işaretlendi", iid)
             flash(f"#{iid} 'kesinti değil' olarak işaretlendi.")
         elif action == "geri-al":
             inbox.reopen(con, iid)
+            log.info("Gelen kutusu #%s geri alındı", iid)
             flash(f"#{iid} tekrar bekleyenlere alındı (eklenen kesinti kayıtları silinmez).")
         else:
             abort(404)
@@ -311,6 +351,7 @@ def manual_entry():
             res = sms.add_structured(con, form, kanal=f"gelen_kutusu#{gelen}" if src else "web_form",
                                      received_at=src["received_at"] if src else None,
                                      raw_text=src["text"] if src else None)
+            log.info("Elle giriş (gelen=%s): %s -> %s", gelen, form, res)
             if res["durum"] == "hata":
                 flash("Kaydedilmedi: " + "; ".join(res["hatalar"]))
                 return render_template("manual.html", f=f, src=src, st=status_info(con))
@@ -343,6 +384,52 @@ def manual_entry():
         con.close()
 
 
+@app.route("/loglar")
+def logs_page():
+    files = logsetup.log_files()
+    names = [p.name for p in files]
+    name = request.args.get("dosya") or ""
+    level = request.args.get("seviye", "")
+    q = (request.args.get("q") or "").strip()
+    limit = request.args.get("adet", 300, type=int)
+    if name and name not in names:
+        abort(404)
+    if name:
+        records = list(reversed(logsetup.read_records(config.LOG_DIR / name)))
+    else:  # varsayılan: tüm bileşenlerin son 7 günlük uyarı/hataları
+        records = logsetup.recent_problems(24 * 7, level or "WARNING")
+    if level in logsetup.LEVELS:
+        records = [r for r in records if r["level"] in logsetup.LEVELS
+                   and logsetup.LEVELS.index(r["level"]) >= logsetup.LEVELS.index(level)]
+    if q:
+        ql = q.lower()
+        records = [r for r in records if ql in (r["msg"] + "\n".join(r["extra"])).lower()]
+    debug_dir = config.LOG_DIR / "debug"
+    dumps = sorted(debug_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)[:30] if debug_dir.exists() else []
+    con = queries.connect()
+    try:
+        st = status_info(con)
+        failed = con.execute("SELECT * FROM scrapes WHERE ok=0 ORDER BY id DESC LIMIT 10").fetchall()
+    finally:
+        con.close()
+    return render_template("logs.html", files=files, name=name, level=level, q=q, limit=limit,
+                           records=records[:limit], total=len(records), dumps=dumps, failed=failed,
+                           log_dir=config.LOG_DIR, st=st)
+
+
+@app.route("/loglar/indir/<path:name>")
+def log_download(name):
+    for p in logsetup.log_files():
+        if p.name == name:
+            return send_file(p, as_attachment=True, download_name=p.name, mimetype="text/plain")
+    d = config.LOG_DIR / "debug"
+    if d.exists():
+        for p in d.iterdir():
+            if p.name == name:
+                return send_file(p, as_attachment=True, download_name=p.name)
+    abort(404)
+
+
 @app.route("/saglik")
 def health():
     con = queries.connect()
@@ -355,10 +442,13 @@ def health():
         "son_tarama": dict(st["last"]) if st["last"] else None,
         "son_basarili_tarama": st["last_ok"]["finished_at"] if st["last_ok"] else None,
         "kayit": dict(st["counts"]),
+        "son_24_saat_hata": st["errors_24h"],
     }
 
 
 def main():
+    logsetup.setup("web")
+    logging.getLogger("waitress").setLevel(logging.INFO)
     from waitress import serve
     print(f"MUSKİ Takip arayüzü: http://{config.WEB_HOST}:{config.WEB_PORT}", flush=True)
     serve(app, host=config.WEB_HOST, port=config.WEB_PORT, threads=4)

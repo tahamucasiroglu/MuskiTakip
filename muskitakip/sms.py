@@ -417,6 +417,8 @@ def add_structured(con, form: dict, kanal="telegram_form", received_at=None, raw
 
 
 def main():
+    from . import logsetup
+    log = logsetup.setup("sms")
     ap = argparse.ArgumentParser(description="MUSKİ kesinti SMS'lerini içe aktar")
     ap.add_argument("dosya")
     ap.add_argument("--eski-once", action="store_true", help="dosyada en eski mesaj en üstte")
@@ -432,6 +434,10 @@ def main():
         con.rollback()
     else:
         con.commit()
+    log.info("SMS içe aktarma (%s, deneme=%s): %s", args.dosya, args.deneme,
+             {k: v for k, v in stats.items() if k != "anlasilamayanlar"})
+    for t in stats["anlasilamayanlar"]:
+        log.warning("Anlaşılamayan mesaj: %s", t[:300])
     print(json.dumps(stats, ensure_ascii=False, indent=2))
     con.close()
     return 0

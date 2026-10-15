@@ -7,3 +7,10 @@ __pycache__/
 data/*.db
 data/*.db-*
 data/backups/
+
+# Gizli bilgiler (Telegram token vb.) asla repoya girmez; Pi'de /etc/muskitakip-telegram.env içinde durur
+.env
+*.secret
+secrets/
+deploy/*telegram*.env
+!deploy/*.example

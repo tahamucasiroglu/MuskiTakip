@@ -14,7 +14,7 @@ import urllib.request
 
 from bs4 import BeautifulSoup
 
-from . import config, db, sms
+from . import config, db, logsetup, sms
 from .parser import (minute_key, norm_upper, parse_api, parse_iso, parse_page, tahmini_bitis)
 
 log = logging.getLogger("muskitakip.scraper")
@@ -49,18 +49,39 @@ def fetch_selenium() -> dict:
     if config.CHROME_BINARY:
         opts.binary_location = config.CHROME_BINARY
     service = Service(executable_path=config.CHROMEDRIVER) if config.CHROMEDRIVER else Service()
+    t0 = time.monotonic()
     driver = webdriver.Chrome(options=opts, service=service)
+    log.debug("Chrome açıldı (%.1f sn): %s", time.monotonic() - t0, driver.capabilities.get("browserVersion"))
     try:
         driver.set_page_load_timeout(config.PAGE_TIMEOUT)
         driver.set_script_timeout(config.PAGE_TIMEOUT)
+        t1 = time.monotonic()
         driver.get(config.PAGE_URL)
         WebDriverWait(driver, config.PAGE_TIMEOUT).until(
             EC.presence_of_element_located((By.ID, "outagesGrid")))
         html = driver.page_source
+        log.info("Sayfa yüklendi: %s (%.1f sn, %d bayt, başlık=%r)", driver.current_url,
+                 time.monotonic() - t1, len(html), driver.title)
+        t2 = time.monotonic()
         api = driver.execute_async_script(FETCH_API_JS, config.API_URL)
+        ok = bool(api and api.get("status") == 200)
+        log.info("API yanıtı: HTTP %s (%.1f sn, %d bayt)", api and api.get("status"), time.monotonic() - t2,
+                 len((api or {}).get("text") or ""))
+        if not ok:
+            log.warning("API başarısız: %s", str(api)[:500])
         return {"method": "selenium", "html": html,
-                "api": api.get("text") if api and api.get("status") == 200 else None,
-                "api_error": None if api and api.get("status") == 200 else f"API: {api}"[:500]}
+                "api": api.get("text") if ok else None,
+                "api_error": None if ok else f"API: {api}"[:500]}
+    except Exception:
+        # Sorunu sonradan görebilmek için o anki ekranı ve sayfa kaynağını sakla.
+        try:
+            shot = logsetup.debug_dump("selenium-hata", driver.get_screenshot_as_png(), "png")
+            src = logsetup.debug_dump("selenium-hata", driver.page_source or "", "html")
+            log.error("Selenium hatası; adres=%s başlık=%r ekran=%s kaynak=%s",
+                      driver.current_url, driver.title, shot, src)
+        except Exception:  # noqa: BLE001
+            log.exception("Hata anı ekran görüntüsü alınamadı")
+        raise
     finally:
         driver.quit()
         shutil.rmtree(profile, ignore_errors=True)
@@ -74,6 +95,7 @@ def _http_get(url: str, accept: str) -> str:
 
 def fetch_http() -> dict:
     """Selenium başarısız olursa veri kaybolmasın diye yedek yol."""
+    log.warning("Selenium kullanılamadı, doğrudan HTTP ile deneniyor")
     html = _http_get(config.PAGE_URL, "text/html")
     try:
         api, err = _http_get(config.API_URL, "application/json"), None
@@ -204,6 +226,8 @@ def find_existing(con, rec, used_ids: set):
 
 
 def add_event(con, outage_id, scrape_id, at, event, field=None, old=None, new=None):
+    log.info("Kesinti #%s %s%s", outage_id, event,
+             f" {field}: {str(old)[:80]!r} -> {str(new)[:80]!r}" if field else "")
     con.execute("INSERT INTO outage_events(outage_id, scrape_id, at, event, field, old_value, new_value) "
                 "VALUES (?,?,?,?,?,?,?)",
                 (outage_id, scrape_id, at, event, field,
@@ -350,6 +374,8 @@ def process(con, scrape_id, html: str | None, api_text: str | None, now: str, er
                  and norm_upper(it["ilce"]) == norm_upper(card["region"])
                  and minute_key(it["kesinti_tarihi"]) == minute_key(card["kesinti_tarihi"])]
         item = None
+        log.debug("Kart %s: %s %s %s | aday API kayıtları=%s", card["index"], card["region"],
+                  card["kesinti_tarihi_raw"], card["status"], [items[i]["muski_id"] for i in cands])
         if card["mahalleler"]:
             cands = [i for i in cands if not items[i]["mahalleler"]
                      or overlap(card["mahalleler"], [m["mahalle"] for m in items[i]["mahalleler"]]) > 0]
@@ -357,6 +383,7 @@ def process(con, scrape_id, html: str | None, api_text: str | None, now: str, er
             best = max(cands, key=lambda i: overlap(card["mahalleler"], [m["mahalle"] for m in items[i]["mahalleler"]]))
             used_items.add(best)
             item = items[best]
+            log.debug("Kart %s ↔ API kesinti %s eşleşti", card["index"], item["muski_id"])
         res = safe_upsert(con, scrape_id, build_record(card, item), now, used_ids, errors)
         if res in stats:
             stats[res] += 1
@@ -368,10 +395,21 @@ def process(con, scrape_id, html: str | None, api_text: str | None, now: str, er
                 stats[res] += 1
 
     # Sayfa düzgün ayrıştırıldıysa listede olmayanlar siteden kalkmış demektir.
+    if page and not grid_ok:
+        log.warning("Sayfada #outagesGrid yok; siteden kalkma kontrolü atlandı (site değişmiş olabilir)")
+        logsetup.debug_dump("grid-yok", html or "", "html")
+    if stats["error"]:
+        log.warning("%s kayıt işlenemediği için siteden kalkma kontrolü bu turda atlandı", stats["error"])
     if page and grid_ok and not stats["error"]:
         toplam = page["summary"].get("Toplam")
         if page["cards"] or toplam == 0 or toplam is None:
             stats["gone"] = mark_gone(con, scrape_id, now, used_ids)
+        else:
+            log.warning("Sayfada kart yok ama özet Toplam=%s; kalkma kontrolü atlandı", toplam)
+    if page and page["summary"].get("Toplam") not in (None, len(page["cards"])):
+        log.warning("Özet Toplam=%s ama %s kart ayrıştırıldı (sayfa yapısı değişmiş olabilir)",
+                    page["summary"].get("Toplam"), len(page["cards"]))
+        logsetup.debug_dump("kart-sayisi-uyusmuyor", html, "html")
     return {"page": page, "api": api, **stats}
 
 
@@ -380,9 +418,12 @@ def run() -> int:
     started = db.now_iso()
     scrape_id = con.execute("INSERT INTO scrapes(started_at) VALUES (?)", (started,)).lastrowid
     con.commit()
+    log.info("Tarama #%s başladı (veritabanı %s)", scrape_id, config.DB_PATH)
+    t0 = time.monotonic()
     errors = []
     try:
         fetched, errors = fetch()
+        log.info("Veri alındı (%s, %.1f sn)", fetched["method"], time.monotonic() - t0)
         now = db.now_iso()
         html_ev = evidence_html(fetched["html"]) if fetched.get("html") else None
         html_sha = save_snapshot(con, scrape_id, "html", config.PAGE_URL, html_ev, now) if html_ev else None
@@ -403,9 +444,12 @@ def run() -> int:
              summ.get("Plansız Kesinti"), summ.get("Planlı Kesinti"), summ.get("Tamamlanan"), summ.get("Toplam"),
              page and page["last_updated"], html_sha, api_sha, scrape_id))
         con.commit()
-        log.info("Tarama #%s tamam (%s): sayfa=%s api=%s yeni=%s değişen=%s kalkan=%s",
-                 scrape_id, fetched["method"], len(page["cards"]) if page else "-",
-                 len(api["items"]) if api else "-", result["new"], result["changed"], result["gone"])
+        log.info("Tarama #%s tamam (%s, %.1f sn): sayfa=%s api=%s yeni=%s değişen=%s kalkan=%s hatalı=%s",
+                 scrape_id, fetched["method"], time.monotonic() - t0, len(page["cards"]) if page else "-",
+                 len(api["items"]) if api else "-", result["new"], result["changed"], result["gone"],
+                 result["error"])
+        for e in errors:
+            log.warning("Tarama #%s uyarısı: %s", scrape_id, e)
         return 0
     except Exception as e:  # noqa: BLE001
         con.rollback()
@@ -420,8 +464,7 @@ def run() -> int:
 
 
 def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-                        stream=sys.stdout)
+    logsetup.setup("scraper")
     sys.exit(run())
 
 

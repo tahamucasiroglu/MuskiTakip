@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Commit'e gizli bilgi (Telegram bot token'ı, özel anahtar, .env dosyası) girmesini engeller.
+# Etkinleştirme (bir kez): git config core.hooksPath .githooks
+set -euo pipefail
+diff=$(git diff --cached -U0 --no-color -- . ':(exclude)*.example')
+if echo "$diff" | grep -E '^\+' | grep -qE '[0-9]{8,10}:[A-Za-z0-9_-]{35}'; then
+  echo "HATA: Commit'te Telegram bot token'ına benzeyen bir değer var. Kaldırıp tekrar deneyin." >&2; exit 1
+fi
+if echo "$diff" | grep -E '^\+' | grep -qE 'BEGIN (RSA|OPENSSH|EC|DSA)? ?PRIVATE KEY'; then
+  echo "HATA: Commit'te özel anahtar var." >&2; exit 1
+fi
+if git diff --cached --name-only | grep -E '(^|/)(\.env|.*telegram.*\.env)$'; then
+  echo "HATA: Gizli ayar dosyası commit'lenmek üzere (yukarıda). Kaldırın." >&2; exit 1
+fi

@@ -90,6 +90,8 @@ def pending_count(con) -> int:
 
 
 def main():
+    from . import logsetup
+    log = logsetup.setup("inbox")
     con = db.connect()
     cmd = sys.argv[1] if len(sys.argv) > 1 else "liste"
     if cmd == "liste":
@@ -100,7 +102,9 @@ def main():
         ids = [int(x) for x in sys.argv[2:]] or [r[0] for r in con.execute(
             "SELECT id FROM inbox WHERE durum='bekliyor' ORDER BY id")]
         for i in ids:
-            print(i, json.dumps(auto_process(con, i), ensure_ascii=False))
+            res = auto_process(con, i)
+            log.info("Gelen kutusu #%s otomatik (komut satırı): %s", i, res)
+            print(i, json.dumps(res, ensure_ascii=False))
         con.commit()
     elif cmd == "yoksay":
         ignore(con, int(sys.argv[2]), " ".join(sys.argv[3:]) or None)

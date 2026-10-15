@@ -17,14 +17,14 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 
-from . import config, db, inbox, sms
+from . import config, db, inbox, logsetup, sms
 
 log = logging.getLogger("muskitakip.telegram")
 
 TOKEN = os.environ.get("MUSKI_TG_TOKEN", "")
 CLAIM_CODE = os.environ.get("MUSKI_TG_CLAIM_CODE", "")
 ENV_OWNER = os.environ.get("MUSKI_TG_OWNER_ID", "")
-WEB_URL = os.environ.get("MUSKI_WEB_PUBLIC_URL", f"http://pi-adresi:{config.WEB_PORT}")
+WEB_URL = os.environ.get("MUSKI_WEB_PUBLIC_URL", f"http://localhost:{config.WEB_PORT}")
 
 HELP = f"""💧 MUSKİ Kesinti Takip botu
 
@@ -48,8 +48,12 @@ def api(method, http_timeout=30, **params):
     req = urllib.request.Request(f"https://api.telegram.org/bot{TOKEN}/{method}",
                                  data=json.dumps(params).encode("utf-8"),
                                  headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=http_timeout) as r:
-        data = json.loads(r.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=http_timeout) as r:
+            data = json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:  # Telegram hata açıklamasını loga taşı (ör. 409 Conflict, 401)
+        body = e.read().decode("utf-8", errors="replace")[:500]
+        raise RuntimeError(f"Telegram {method} HTTP {e.code}: {body}") from None
     if not data.get("ok"):
         raise RuntimeError(f"Telegram {method}: {data}")
     return data["result"]
@@ -154,6 +158,8 @@ def plain_message(con, msg, text, received_at):
 def handle(con, msg):
     chat, user = msg.get("chat", {}), msg.get("from", {})
     text = (msg.get("text") or msg.get("caption") or "").strip()
+    log.info("Mesaj alındı: id=%s kullanıcı=%s sohbet=%s/%s uzunluk=%s başı=%r", msg.get("message_id"),
+             user.get("id"), chat.get("id"), chat.get("type"), len(text), text[:60])
     received_at = datetime.fromtimestamp(msg.get("date", time.time()), config.TZ).isoformat(timespec="seconds")
     owner = owner_id(con)
 
@@ -189,6 +195,7 @@ def handle(con, msg):
     else:
         reply = plain_message(con, msg, text, received_at)
     con.commit()
+    log.info("Yanıt (%s): %r", cmd if cmd.startswith("/") else "düz mesaj", (reply or "")[:120])
     if reply:
         send(chat["id"], reply)
 
@@ -237,14 +244,13 @@ def run():
             time.sleep(backoff)
             backoff = min(backoff * 2, 300)
         except Exception:  # noqa: BLE001
-            log.exception("Beklenmeyen hata")
+            log.exception("Beklenmeyen hata (%ss sonra tekrar)", backoff)
             time.sleep(backoff)
             backoff = min(backoff * 2, 300)
 
 
 def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-                        stream=sys.stdout)
+    logsetup.setup("telegram")
     sys.exit(run())
 
 

@@ -12,7 +12,11 @@ DB_PATH = Path(os.environ.get("MUSKI_DB", DATA_DIR / "muski.db"))
 BACKUP_DIR = Path(os.environ.get("MUSKI_BACKUP_DIR", DATA_DIR / "backups"))
 BACKUP_KEEP = int(os.environ.get("MUSKI_BACKUP_KEEP", "90"))
 
-WEB_HOST = os.environ.get("MUSKI_WEB_HOST", "0.0.0.0")
+LOG_DIR = Path(os.environ.get("MUSKI_LOG_DIR", DATA_DIR / "logs"))
+LOG_KEEP_DAYS = int(os.environ.get("MUSKI_LOG_KEEP_DAYS", "60"))
+DEBUG_KEEP = int(os.environ.get("MUSKI_DEBUG_KEEP", "60"))
+
+WEB_HOST =os.environ.get("MUSKI_WEB_HOST", "0.0.0.0")
 WEB_PORT = int(os.environ.get("MUSKI_WEB_PORT", "5090"))
 
 # Selenium: Pi'de projeye özel chromium kullanılır (sistem chromium'una dokunulmaz).

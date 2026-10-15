@@ -16,6 +16,7 @@
     <a href="{{ url_for('inbox_page') }}">Gelen Kutusu{% if st and st.inbox_pending %} <span class="badge">{{ st.inbox_pending }}</span>{% endif %}</a>
     <a href="{{ url_for('manual_entry') }}">+ Mesaj ekle</a>
     <a href="{{ url_for('backups') }}">Yedek / Veritabanı</a>
+    <a href="{{ url_for('logs_page') }}">Loglar{% if st and st.errors_24h %} <span class="badge">{{ st.errors_24h }}</span>{% endif %}</a>
   </nav>
 </header>
 {% if st %}
@@ -29,6 +30,7 @@
   {% endif %}
   <span><b>Kayıt:</b> {{ st.counts.toplam or 0 }} · devam {{ st.counts.devam or 0 }} · biten {{ (st.counts.tamamlandi or 0) + (st.counts.kalkti or 0) + (st.counts.ilan_bitti or 0) }} · şu an sitede {{ st.counts.sitede or 0 }}</span>
   <span><b>Ziyaret sayısı:</b> {{ st.nscr.n or 0 }}{% if st.nscr.hata %} ({{ st.nscr.hata }} hatalı){% endif %}</span>
+  {% if st.errors_24h %}<span class="err"><a href="{{ url_for('logs_page', seviye='ERROR') }}">⚠ Son 24 saatte {{ st.errors_24h }} hata kaydı</a></span>{% endif %}
   {% if st.stale and st.last_ok %}<span class="err">⚠ Son {{ st.interval * 2 }}+ dakikadır başarılı ziyaret yok!</span>{% endif %}
 </div>
 {% endif %}

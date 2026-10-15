@@ -71,3 +71,6 @@ details.help { background:var(--card); border:1px solid var(--line); border-radi
 .manual input, .manual select, .manual textarea, textarea.paste { font:inherit; padding:.4rem; border:1px solid var(--line); border-radius:5px; color:var(--text); background:#fff; }
 .manual .wide { grid-column:1 / -1; }
 textarea.paste { width:100%; min-height:90px; }
+table.logs tr.lv-WARNING td { background:#fff8e6; }
+table.logs tr.lv-ERROR td, table.logs tr.lv-CRITICAL td { background:#fdecea; }
+table.logs tr.lv-DEBUG td { color:var(--muted); }

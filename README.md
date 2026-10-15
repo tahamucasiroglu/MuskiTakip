@@ -29,7 +29,7 @@ CSV ve JSON olarak indirilebilir.
 
 ## Raspberry Pi kurulumu
 ```bash
-bash deploy/deploy.sh kullanici@pi-adresi   # son commit'i gönderir ve deploy/install.sh'ı çalıştırır
+bash deploy/deploy.sh kullanici@pi-adresi   # (ya da MUSKI_PI_HOST ortam değişkeni) son commit'i gönderir ve deploy/install.sh'ı çalıştırır
 ```
 - Kod: `/opt/muskitakip/app`, venv: `/opt/muskitakip/venv`, projeye özel Chromium+ChromeDriver: `/opt/muskitakip/chromium`
   (sistemdeki Chromium'a ve diğer uygulamalara dokunulmaz)
@@ -79,3 +79,19 @@ tek kullanımlık kodla belirlenir: bota `/baslat <kod>` yazılır. Token ve kod
   ```
 - Diğer komutlar: `/durum`, `/aktif`, `/kutu`, `/sablon`, `/yardim`.
 - Servis: `muskitakip-telegram.service` (long polling; port açmaz). Log: `journalctl -u muskitakip-telegram -f`.
+
+## Loglama ve hata ayıklama
+- Her bileşen kendi dosyasına yazar: `/var/lib/muskitakip/logs/{scraper,web,telegram,backup,sms,inbox}.log`
+  (her gece döner, 60 gün saklanır). Aynı kayıtlar journald'a da gider: `journalctl -u muskitakip-scraper -n 100`.
+- Web'de **Loglar** sayfası: tüm bileşenlerin son uyarı/hataları, dosya bazında filtre (seviye, metin), indirme.
+  Son 24 saatte hata varsa menüde ve durum çubuğunda kırmızı uyarı çıkar; `/saglik` JSON'unda da sayısı vardır.
+- Selenium hata verirse ya da sayfa yapısı beklenmedik görünürse (kart sayısı özetle uyuşmuyor, `#outagesGrid` yok)
+  o anki ekran görüntüsü ve sayfa kaynağı `logs/debug/` altına kaydedilir (son 60 dosya).
+- Daha ayrıntılı eşleştirme logları için `/etc/muskitakip.env` içine `MUSKI_LOG_LEVEL=DEBUG` ekleyip servisleri yeniden başlatın.
+- Telegram token'ı ve kurulum kodu loglara (traceback dahil) `***` olarak yazılır.
+
+## Gizli bilgiler (repo public)
+- Telegram token'ı, kurulum kodu vb. **yalnızca Pi'de** `/etc/muskitakip-telegram.env` dosyasındadır; örnek:
+  `deploy/muskitakip-telegram.env.example`. `.gitignore` bu tür dosyaları dışlar.
+- Commit'e token/özel anahtar/.env girmesini engelleyen kanca: `git config core.hooksPath .githooks` (bir kez çalıştırın).
+- Pi adresi koda yazılı değildir: `bash deploy/deploy.sh kullanici@pi-adresi` ya da `MUSKI_PI_HOST` ortam değişkeni.
