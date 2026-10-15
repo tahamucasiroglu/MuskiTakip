@@ -1,3 +1,6 @@
+# Sürekli su kesip geçmişi paylaşmıyorlar. Kayıt için açtığım proje. Raspi için hazırlandı.
+
+
 # MUSKİ Kesinti Takip
 
 MUSKİ (Muğla Su ve Kanalizasyon İdaresi) su kesintilerini kayıt altına alır. MUSKİ geçmiş kesintileri
