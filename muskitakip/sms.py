@@ -67,8 +67,10 @@ def _split_names(text: str) -> list[str]:
 
 
 def _time(date, hhmm):
-    h, m = re.split(r"[.:]", hhmm)
-    return date.replace(hour=int(h) % 24, minute=int(m))
+    h, m = (int(x) for x in re.split(r"[.:]", hhmm))
+    if h >= 24:  # "24.00" -> ertesi gün 00:00
+        return date.replace(hour=0, minute=m) + timedelta(days=h // 24)
+    return date.replace(hour=h, minute=m)
 
 
 def parse_message(text: str) -> dict | None:
@@ -98,6 +100,8 @@ def parse_message(text: str) -> dict | None:
     if rm:
         baslangic = _time(gun, rm.group(1))
         bitis = _time(gun, rm.group(2))
+        if bitis <= baslangic:  # gece yarısını geçen aralık (ör. 22.00-02.00)
+            bitis += timedelta(days=1)
     else:
         sm = re.search(r"SAAT\s*(\d{1,2}[.:]\d{2})", t)
         if not sm:
@@ -163,11 +167,13 @@ def find_group(con, msg):
         return None
     rows = con.execute("SELECT * FROM outages WHERE source='mesaj' AND ariza_yeri=? ORDER BY tahmini_bitis DESC",
                        (msg["ariza_yeri"],)).fetchall()
+    best = None
     for r in rows:
         prev = datetime.fromisoformat(r["tahmini_bitis"])
-        if prev <= msg["bitis"] <= prev + JOIN_WINDOW:
-            return r
-    return None
+        gap = abs(msg["bitis"] - prev)
+        if gap <= JOIN_WINDOW and (best is None or gap < best[0]):
+            best = (gap, r)
+    return best[1] if best else None
 
 
 def refresh_status(con, now_dt=None):
@@ -186,6 +192,7 @@ def import_messages(con, texts: list[str], kanal="toplu_ice_aktarim", received_a
     now = db.now_iso()
     stats = {"toplam": len(texts), "kesinti_disi": 0, "anlasilamadi": 0, "mukerrer": 0,
              "yeni_kesinti": 0, "mevcut_kesintiye_eklendi": 0, "anlasilamayanlar": []}
+    batch_seen = set()
     for text in texts:
         if not is_outage(text):
             stats["kesinti_disi"] += 1
@@ -197,19 +204,25 @@ def import_messages(con, texts: list[str], kanal="toplu_ice_aktarim", received_a
             continue
         existing_msg = con.execute("SELECT id, outage_id FROM messages WHERE text_sha256=?", (msg["sha"],)).fetchone()
         if existing_msg:
-            con.execute("UPDATE messages SET adet=adet+1 WHERE id=?", (existing_msg["id"],))
+            # Aynı aktarımda tekrar gelen mesaj sayılır; önceki aktarımlardan bilinen mesaj tekrar sayılmaz.
+            if msg["sha"] in batch_seen:
+                con.execute("UPDATE messages SET adet=adet+1 WHERE id=?", (existing_msg["id"],))
             stats["mukerrer"] += 1
             continue
+        batch_seen.add(msg["sha"])
 
         group = find_group(con, msg)
         if group:
             oid = group["id"]
             old_end = group["tahmini_bitis"]
-            new_end = _iso(max(datetime.fromisoformat(old_end), msg["bitis"]))
+            new_end = _iso(msg["bitis"])  # en son gelen mesajdaki bitiş geçerlidir
             if new_end != old_end:
                 con.execute("UPDATE outages SET tahmini_bitis=?, updated_at=? WHERE id=?", (new_end, now, oid))
                 _event(con, oid, now, "sure_uzatildi" if msg["tip"] == "devam" else "dolum_mesaji",
                        "tahmini_bitis", old_end, new_end)
+                if group["durum"] != "devam":  # yeni bitiş saati gelecekteyse refresh_status tekrar kapatmaz
+                    con.execute("UPDATE outages SET durum='devam' WHERE id=?", (oid,))
+                    _event(con, oid, now, "yeniden_acildi", "durum", group["durum"], "devam")
             con.execute("UPDATE outages SET sms_text = sms_text || char(10) || char(10) || ? WHERE id=?",
                         (msg["text"], oid))
             if msg["tip"] == "dolum":

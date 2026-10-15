@@ -183,7 +183,7 @@ def build_record(card: dict | None, item: dict | None) -> dict:
 def find_existing(con, rec, used_ids: set):
     if rec.get("muski_id"):
         row = con.execute("SELECT * FROM outages WHERE muski_id=?", (rec["muski_id"],)).fetchone()
-        if row:
+        if row and row["id"] not in used_ids:
             return row
     dt = rec.get("kesinti_tarihi_dt")
     if not dt:
@@ -193,9 +193,13 @@ def find_existing(con, rec, used_ids: set):
         (minute_key(dt),)).fetchall()
     cands = [r for r in rows if norm_upper(r["ilce"]) == norm_upper(rec["ilce"]) and r["id"] not in used_ids
              and not (rec.get("muski_id") and r["muski_id"] and r["muski_id"] != rec["muski_id"])]
+    names = [n["mahalle"] for n in rec["neighborhoods"]]
+    if names:
+        # Aynı ilçe+dakikada ortak mahallesi olmayan kayıt başka bir kesintidir; birleştirme.
+        cands = [r for r in cands if not r["mahalleler_text"]
+                 or overlap(names, r["mahalleler_text"].split(", ")) > 0]
     if not cands:
         return None
-    names = [n["mahalle"] for n in rec["neighborhoods"]]
     return max(cands, key=lambda r: overlap(names, (r["mahalleler_text"] or "").split(", ")))
 
 
@@ -281,6 +285,8 @@ def upsert(con, scrape_id, rec, now, used_ids: set) -> str:
         changed = True
     if durum == "devam":
         updates["last_active_seen_at"] = now
+        if existing["completed_seen_at"]:
+            updates["completed_seen_at"] = None  # tekrar "devam" görünürse eski tamamlanma anı geçersiz
     elif durum == "tamamlandi" and not existing["completed_seen_at"]:
         updates["completed_seen_at"] = now
     sets = ", ".join(f"{k}=?" for k in updates)
@@ -305,37 +311,64 @@ def mark_gone(con, scrape_id, now, seen_ids: set) -> int:
 
 # --------------------------------------------------------------------------- ana akış
 
-def process(con, scrape_id, html: str | None, api_text: str | None, now: str) -> dict:
+def safe_upsert(con, scrape_id, rec, now, used_ids, errors) -> str:
+    """Tek bir bozuk kayıt tüm taramayı düşürmesin (savepoint ile yalnızca o kayıt geri alınır)."""
+    if not rec.get("kesinti_tarihi"):
+        errors.append(f"Tarihi okunamayan kayıt atlandı: {rec.get('ilce')} {rec.get('kesinti_tarihi_raw')!r}")
+        return "error"
+    con.execute("SAVEPOINT rec")
+    try:
+        res = upsert(con, scrape_id, rec, now, used_ids)
+        con.execute("RELEASE SAVEPOINT rec")
+        return res
+    except Exception as e:  # noqa: BLE001
+        con.execute("ROLLBACK TO SAVEPOINT rec")
+        con.execute("RELEASE SAVEPOINT rec")
+        log.exception("Kayıt işlenemedi")
+        errors.append(f"Kayıt işlenemedi ({rec.get('ilce')} {rec.get('kesinti_tarihi')}): {type(e).__name__}: {e}")
+        return "error"
+
+
+def process(con, scrape_id, html: str | None, api_text: str | None, now: str, errors: list | None = None) -> dict:
+    errors = errors if errors is not None else []
     page = parse_page(html) if html else None
-    api = parse_api(api_text) if api_text else None
+    api = None
+    if api_text:
+        try:
+            api = parse_api(api_text)
+        except (ValueError, TypeError, AttributeError) as e:
+            errors.append(f"API yanıtı JSON değil / beklenmeyen biçim: {type(e).__name__}: {e}"[:500])
     grid_ok = bool(html) and ('id="outagesGrid"' in html)
 
     items = list(api["items"]) if api else []
     used_items = set()
     used_ids: set = set()
-    stats = {"new": 0, "changed": 0, "gone": 0}
+    stats = {"new": 0, "changed": 0, "gone": 0, "error": 0}
 
     for card in (page["cards"] if page else []):
         cands = [i for i, it in enumerate(items) if i not in used_items
                  and norm_upper(it["ilce"]) == norm_upper(card["region"])
                  and minute_key(it["kesinti_tarihi"]) == minute_key(card["kesinti_tarihi"])]
         item = None
+        if card["mahalleler"]:
+            cands = [i for i in cands if not items[i]["mahalleler"]
+                     or overlap(card["mahalleler"], [m["mahalle"] for m in items[i]["mahalleler"]]) > 0]
         if cands:
             best = max(cands, key=lambda i: overlap(card["mahalleler"], [m["mahalle"] for m in items[i]["mahalleler"]]))
             used_items.add(best)
             item = items[best]
-        res = upsert(con, scrape_id, build_record(card, item), now, used_ids)
+        res = safe_upsert(con, scrape_id, build_record(card, item), now, used_ids, errors)
         if res in stats:
             stats[res] += 1
 
     for i, item in enumerate(items):  # API'de olup sayfada eşleşmeyenler
         if i not in used_items:
-            res = upsert(con, scrape_id, build_record(None, item), now, used_ids)
+            res = safe_upsert(con, scrape_id, build_record(None, item), now, used_ids, errors)
             if res in stats:
                 stats[res] += 1
 
     # Sayfa düzgün ayrıştırıldıysa listede olmayanlar siteden kalkmış demektir.
-    if page and grid_ok:
+    if page and grid_ok and not stats["error"]:
         toplam = page["summary"].get("Toplam")
         if page["cards"] or toplam == 0 or toplam is None:
             stats["gone"] = mark_gone(con, scrape_id, now, used_ids)
@@ -356,7 +389,7 @@ def run() -> int:
         api_sha = save_snapshot(con, scrape_id, "api", config.API_URL, fetched["api"], now) if fetched.get("api") else None
         if fetched.get("api_error"):
             errors.append(fetched["api_error"])
-        result = process(con, scrape_id, fetched.get("html"), fetched.get("api"), now)
+        result = process(con, scrape_id, fetched.get("html"), fetched.get("api"), now, errors)
         sms.refresh_status(con)  # mesaj kayıtlarında ilan edilen saati geçenleri "bitti" yap
         page, api = result["page"], result["api"]
         summ = page["summary"] if page else {}

@@ -14,7 +14,7 @@
     <tr class="{{ '' if s.ok else 'd-err' }}">
       <td>{{ s.id }}</td>
       <td class="nowrap">{{ s.started_at|dt(true) }}</td>
-      <td>{% if s.finished_at %}{{ ((s.finished_at|string)[11:19]) }}{% endif %}</td>
+      <td class="nowrap">{{ s|sure }}</td>
       <td>{% if s.ok %}<span class="ok">✓</span>{% elif s.finished_at %}<span class="err">✗</span>{% else %}…{% endif %}</td>
       <td>{{ s.method or '' }}</td>
       <td>{{ s.html_count if s.html_count is not none else '' }}</td>

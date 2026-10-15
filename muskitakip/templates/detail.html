@@ -9,7 +9,7 @@
   <tr><th>Kesinti tarihi</th><td>{{ o.kesinti_tarihi|dt(true) }} <small class="muted">(ham: {{ o.kesinti_tarihi_raw }})</small></td></tr>
   <tr><th>Tahmini süre</th><td>{{ o.tahmini_sure_saat|saat }} {% if o.tahmini_sure_text %}<small class="muted">(sitede: "{{ o.tahmini_sure_text }}")</small>{% endif %}</td></tr>
   <tr><th>Tahmini bitiş</th><td>{{ o.tahmini_bitis|dt }}</td></tr>
-  <tr><th>Bitiş aralığı</th><td>{% if o.bitis_en_gec %}{{ o.bitis_en_erken|dt(true) or 'bilinmiyor' }} ile {{ o.bitis_en_gec|dt(true) }} arası{% else %}henüz bitmedi{% endif %}</td></tr>
+  <tr><th>Bitiş aralığı</th><td>{% if o.bitis_en_gec %}{{ o.bitis_en_erken|dt(true) or 'bilinmiyor' }} ile {{ o.bitis_en_gec|dt(true) }} arası{% elif o.durum == 'ilan_bitti' %}SMS'te bildirilen bitiş: {{ o.tahmini_bitis|dt }} (gerçek bitiş bilinmiyor){% elif o.source == 'mesaj' %}SMS'te bildirilen bitiş: {{ o.tahmini_bitis|dt }}{% else %}henüz bitmedi{% endif %}</td></tr>
   <tr><th>Gerçekleşen süre</th><td>{% if o.sure_en_fazla_saat is not none %}{% if o.sure_en_az_saat is not none %}{{ o.sure_en_az_saat|saat }} – {% else %}en fazla {% endif %}{{ o.sure_en_fazla_saat|saat }}{% if o.tahmin_asildi %} <span class="err">(tahmin aşıldı)</span>{% endif %}{% else %}—{% endif %}</td></tr>
   <tr><th>Kesinti türü</th><td>{{ o.kesinti_turu or '' }} {% if o.tur_etiketi %}<small class="muted">(rozet: {{ o.tur_etiketi }}, kod: {{ o.kesinti_turu_kod }})</small>{% endif %}</td></tr>
   <tr><th>Sitedeki durum</th><td>{{ o.site_durum_text or '' }} <small class="muted">{{ o.site_durum or '' }}</small></td></tr>

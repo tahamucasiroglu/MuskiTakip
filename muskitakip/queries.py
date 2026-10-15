@@ -134,7 +134,13 @@ def enrich(o: dict) -> dict:
     completed = parse_iso(o.get("completed_seen_at"))
     gone = parse_iso(o.get("gone_at"))
     last_active = parse_iso(o.get("last_active_seen_at"))
-    end_upper = completed or (gone if o.get("durum") == "kalkti" else None)
+    durum = o.get("durum")
+    if durum == "tamamlandi" and completed and not (last_active and completed < last_active):
+        end_upper = completed
+    elif durum in ("kalkti", "tamamlandi"):
+        end_upper = gone or completed
+    else:
+        end_upper = None  # devam eden ya da SMS kaydı (SMS'te gözlem yok, yalnızca ilan edilen saat var)
     end_lower = last_active if (last_active and end_upper and last_active < end_upper) else None
     o["durum_label"] = DURUM_LABELS.get(o.get("durum"), o.get("durum"))
     o["kaynak_label"] = KAYNAK_LABELS.get(o.get("source"), o.get("source"))

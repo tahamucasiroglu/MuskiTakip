@@ -25,7 +25,7 @@
   {% else %}
     <span>Henüz site ziyareti yapılmadı. Tarayıcı her {{ st.interval }} dakikada bir otomatik çalışır.</span>
   {% endif %}
-  <span><b>Kayıt:</b> {{ st.counts.toplam or 0 }} · devam {{ st.counts.devam or 0 }} · biten {{ (st.counts.tamamlandi or 0) + (st.counts.kalkti or 0) }} · şu an sitede {{ st.counts.sitede or 0 }}</span>
+  <span><b>Kayıt:</b> {{ st.counts.toplam or 0 }} · devam {{ st.counts.devam or 0 }} · biten {{ (st.counts.tamamlandi or 0) + (st.counts.kalkti or 0) + (st.counts.ilan_bitti or 0) }} · şu an sitede {{ st.counts.sitede or 0 }}</span>
   <span><b>Ziyaret sayısı:</b> {{ st.nscr.n or 0 }}{% if st.nscr.hata %} ({{ st.nscr.hata }} hatalı){% endif %}</span>
   {% if st.stale and st.last_ok %}<span class="err">⚠ Son {{ st.interval * 2 }}+ dakikadır başarılı ziyaret yok!</span>{% endif %}
 </div>

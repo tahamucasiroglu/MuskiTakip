@@ -26,6 +26,12 @@ def _saat(value):
     return queries.fmt_hours(value)
 
 
+@app.template_filter("sure")
+def _sure(row):
+    a, b = parse_iso(row["started_at"]), parse_iso(row["finished_at"])
+    return f"{int((b - a).total_seconds())} sn" if a and b else ""
+
+
 @app.template_filter("ago")
 def _ago(value):
     dt = parse_iso(value) if isinstance(value, str) else value
@@ -46,7 +52,7 @@ def status_info(con):
     last_ok = con.execute("SELECT * FROM scrapes WHERE ok=1 ORDER BY id DESC LIMIT 1").fetchone()
     counts = con.execute(
         "SELECT COUNT(*) toplam, SUM(durum='devam') devam, SUM(durum='tamamlandi') tamamlandi, "
-        "SUM(durum='kalkti') kalkti, SUM(gone_at IS NULL AND source='web') sitede FROM outages").fetchone()
+        "SUM(durum='kalkti') kalkti, SUM(durum='ilan_bitti') ilan_bitti, SUM(gone_at IS NULL AND source='web') sitede FROM outages").fetchone()
     nscr = con.execute("SELECT COUNT(*) n, SUM(ok=0) hata FROM scrapes").fetchone()
     stale = True
     if last_ok:
@@ -143,8 +149,10 @@ def stats():
             f"FROM outages o{where} GROUP BY o.ilce ORDER BY n DESC", params).fetchall()
         by_mahalle = con.execute(
             f"SELECT o.ilce, n.mahalle, COUNT(*) adet, MAX(o.kesinti_tarihi) son FROM outages o "
-            f"JOIN outage_neighborhoods n ON n.outage_id=o.id{where} GROUP BY o.ilce, n.mahalle "
-            f"ORDER BY adet DESC, son DESC LIMIT 100", params).fetchall()
+            f"JOIN outage_neighborhoods n ON n.outage_id=o.id{where}"
+            + (f" {'AND' if where else 'WHERE'} FOLD(n.mahalle) LIKE '%' || FOLD(?) || '%'" if f["mahalle"] else "")
+            + " GROUP BY o.ilce, n.mahalle ORDER BY adet DESC, son DESC LIMIT 100",
+            params + ([f["mahalle"]] if f["mahalle"] else [])).fetchall()
         by_month = con.execute(
             f"SELECT substr(o.kesinti_tarihi,1,7) ay, COUNT(*) n, ROUND(SUM(o.tahmini_sure_saat),1) saat "
             f"FROM outages o{where} GROUP BY ay ORDER BY ay DESC", params).fetchall()
