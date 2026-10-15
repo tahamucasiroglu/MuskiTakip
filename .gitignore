@@ -14,3 +14,7 @@ data/backups/
 secrets/
 deploy/*telegram*.env
 !deploy/*.example
+
+# Loglar ve hata anı dosyaları
+data/logs/
+logs/
