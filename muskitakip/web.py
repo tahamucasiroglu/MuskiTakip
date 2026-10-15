@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
 import os
+import re
 
 from flask import Flask, Response, abort, flash, redirect, render_template, request, send_file, url_for
 
@@ -256,7 +257,7 @@ def inbox_page():
         tab = tab if tab in INBOX_TABS else "bekliyor"
         sql = "SELECT * FROM inbox" + ("" if tab == "tumu" else " WHERE durum=?") + " ORDER BY id DESC LIMIT 300"
         rows = con.execute(sql, () if tab == "tumu" else (tab,)).fetchall()
-        items = [{"row": r, "pv": inbox.preview(r["text"]),
+        items = [{"row": r, "pv": inbox.safe_preview(r["text"]),
                   "ids": [int(x) for x in (r["outage_ids"] or "").split(",") if x]} for r in rows]
         counts = {r[0]: r[1] for r in con.execute("SELECT durum, COUNT(*) FROM inbox GROUP BY durum")}
         return render_template("inbox.html", items=items, tab=tab, tabs=INBOX_TABS, counts=counts,
@@ -291,7 +292,7 @@ def inbox_action(iid, action):
     return redirect(request.referrer or url_for("inbox_page"))
 
 
-MANUAL_FIELDS = ("tarih", "baslangic", "bitis", "ilce", "yer", "mahalleler", "sebep", "tur", "not")
+MANUAL_FIELDS = ("tarih", "baslangic", "bitis", "bitis_tarihi", "ilce", "yer", "mahalleler", "sebep", "tur", "not")
 
 
 @app.route("/mesaj/yeni", methods=["GET", "POST"])
@@ -303,9 +304,10 @@ def manual_entry():
         if request.method == "POST":
             f = {k: (request.form.get(k) or "").strip() for k in MANUAL_FIELDS}
             form = {k: v for k, v in f.items() if v}
-            if form.get("tarih") and "-" in form["tarih"]:  # <input type=date> -> GG.AA.YYYY
-                y, m, d = form["tarih"].split("-")
-                form["tarih"] = f"{d}.{m}.{y}"
+            for k in ("tarih", "bitis_tarihi"):  # <input type=date> -> GG.AA.YYYY
+                mm = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", form.get(k, ""))
+                if mm:
+                    form[k] = f"{mm.group(3)}.{mm.group(2)}.{mm.group(1)}"
             res = sms.add_structured(con, form, kanal=f"gelen_kutusu#{gelen}" if src else "web_form",
                                      received_at=src["received_at"] if src else None,
                                      raw_text=src["text"] if src else None)
@@ -326,13 +328,16 @@ def manual_entry():
             m = next((x["parsed"] for x in pv["parcalar"] if x["parsed"]), None)
             if m:
                 f = {"tarih": m["tarih"], "bitis": f"{m['bitis']:%H:%M}", "yer": m["ariza_yeri"] or "",
+                     "bitis_tarihi": m["bitis"].date().isoformat() if m["bitis"].date().isoformat() != m["tarih"] else "",
                      "mahalleler": ", ".join(m["etkilenen"]), "sebep": m["sebep"], "tur": m["tur"].lower(),
                      "baslangic": f"{m['baslangic']:%H:%M}" if m["baslangic"] else ""}
             else:
                 f = sms.parse_form(src["text"])
-                d = sms._form_date(f.get("tarih", ""))
-                if d:
-                    f["tarih"] = d.date().isoformat()
+                try:
+                    d = sms._form_date(f.get("tarih", ""))
+                except ValueError:
+                    d = None
+                f["tarih"] = d.date().isoformat() if d else ""
         return render_template("manual.html", f=f, src=src, st=status_info(con))
     finally:
         con.close()

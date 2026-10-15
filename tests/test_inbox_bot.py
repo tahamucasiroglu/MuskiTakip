@@ -83,3 +83,47 @@ def test_web_inbox_and_manual(con, monkeypatch):
     for fmt in ("xlsx", "pdf", "docx"):
         assert c.get(f"/disari/{fmt}?kaynak=mesaj").status_code == 200
     assert "Kesinti yeri" in c.get("/").get_data(as_text=True)
+
+
+BAD = SMS.replace("22.00'YE", "22.75'E")
+
+
+def test_invalid_time_does_not_crash(con, monkeypatch):
+    assert sms.parse_message(BAD) is None
+    assert sms.parse_message(SMS.replace("15.10.2026", "31.02.2026")) is None
+    sent = []
+    monkeypatch.setattr(telegram_bot, "send", lambda chat, text: sent.append(text))
+    monkeypatch.setattr(telegram_bot, "ENV_OWNER", "42")
+    telegram_bot.handle(con, _msg(BAD, mid=1))
+    assert inbox.pending_count(con) == 1 and "okunamadı" in sent[-1]
+    telegram_bot.handle(con, _msg("/kesinti\ntarih: 32.10.2026\nmahalleler: Tuzla", mid=2))
+    assert "Kaydedilmedi" in sent[-1]
+    telegram_bot.handle(con, _msg("/kesinti\ntarih: 15.10.2026\nbitis: 22:75\nmahalleler: Tuzla", mid=3))
+    assert "Kaydedilmedi" in sent[-1]
+    from muskitakip.web import app
+    c = app.test_client()
+    assert c.get("/gelen-kutusu").status_code == 200
+    assert c.post("/mesaj/yeni", data={"tarih": "2026-10", "bitis": "14:75", "mahalleler": "Tuzla"}).status_code == 200
+
+
+def test_no_bitis_then_devam_sms(con):
+    sms.add_structured(con, sms.parse_form("tarih: 15.10.2026\nyer: Tuzla Mah. 644 Sokak\nmahalleler: Tuzla"))
+    devam = SMS.replace("MEYDANA GELEN", "DEVAM EDEN")
+    assert sms.import_messages(con, [devam])["anlasilamadi"] == 0
+
+
+def test_names_with_mah_suffix_and_date_in_time():
+    assert sms._split_names(sms.tr_upper("Babataşı Mah., Tuzla Mah. ve Taşyaka")) == ["BABATAŞI", "TUZLA", "TAŞYAKA"]
+    day = sms._form_date("15.10.2026")
+    assert sms._form_time(day, "16.10.2026 02:00").isoformat().startswith("2026-10-16T02:00")
+
+
+def test_multi_paste_phone_order_and_cross_channel_dup(con):
+    devam = SMS.replace("MEYDANA GELEN", "DEVAM EDEN").replace("22.00'YE", "23.30'A")
+    iid, _ = inbox.save(con, devam + "\n" + SMS)  # telefondaki gibi: en yeni üstte
+    r = inbox.auto_process(con, iid)
+    assert r["yeni_kesinti"] == 1 and r["mevcut_kesintiye_eklendi"] == 1
+    # aynı kesinti /kesinti ile de girilirse yeni kayıt açılmaz
+    res = sms.add_structured(con, sms.parse_form(
+        "tarih: 15.10.2026\nbitis: 23:30\nyer: Tuzla Mah. 644 Sokak\nmahalleler: Babataşı, Tuzla"))
+    assert res["durum"] == "mukerrer"

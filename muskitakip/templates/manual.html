@@ -12,6 +12,7 @@
   <label>Tarih *<input type="date" name="tarih" value="{{ f.tarih or '' }}" required></label>
   <label>Başlangıç saati<input type="time" name="baslangic" value="{{ f.baslangic or '' }}"></label>
   <label>Bitiş saati (bildirilen)<input type="time" name="bitis" value="{{ f.bitis or '' }}"></label>
+  <label>Bitiş tarihi (farklı günse)<input type="date" name="bitis_tarihi" value="{{ f.bitis_tarihi or '' }}"></label>
   <label>İlçe<input name="ilce" value="{{ f.ilce or 'FETHİYE' }}"></label>
   <label class="wide">Kesinti yeri<input name="yer" value="{{ f.yer or '' }}" placeholder="örn. Tuzla Mah. 644 Sokak"></label>
   <label class="wide">Etkilenen mahalleler * (virgülle)<input name="mahalleler" value="{{ f.mahalleler or '' }}" placeholder="örn. Babataşı, Tuzla"></label>

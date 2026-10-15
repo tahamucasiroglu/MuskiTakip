@@ -24,7 +24,7 @@ def save(con, text, kanal="telegram", received_at=None, chat_id=None, message_id
 
 def preview(text: str) -> dict:
     """Mesajın otomatik ayrıştırılıp ayrıştırılamayacağını, kayda yazmadan söyler."""
-    parts = sms.split_messages(text) or [text]
+    parts = sms.split_messages(text) or [text]  # parse_message geçersiz tarih/saatte None döner, hata fırlatmaz
     out = []
     for p in parts:
         if not sms.is_outage(p):
@@ -36,23 +36,40 @@ def preview(text: str) -> dict:
             "hepsi_anlasildi": all(x["parsed"] or not x["kesinti"] for x in out)}
 
 
+def safe_preview(text: str) -> dict:
+    try:
+        return preview(text)
+    except Exception:  # noqa: BLE001  tek bozuk mesaj sayfayı düşürmesin
+        return {"parcalar": [{"text": text, "kesinti": True, "parsed": None}],
+                "otomatik_eklenebilir": False, "hepsi_anlasildi": False}
+
+
 def auto_process(con, inbox_id: int) -> dict:
     row = con.execute("SELECT * FROM inbox WHERE id=?", (inbox_id,)).fetchone()
     if not row:
         return {"ok": False, "hata": "kayıt yok"}
     texts = sms.split_messages(row["text"]) or [row["text"]]
+    texts.reverse()  # telefondan kopyalanan mesajlarda en yeni üstte; içe aktarma eskiden yeniye ister
     stats = sms.import_messages(con, texts, kanal=f"gelen_kutusu#{inbox_id}", received_at=row["received_at"])
     ids = stats["outage_ids"]
-    if ids:
-        _close(con, inbox_id, "eklendi", ids,
-               None if not stats["anlasilamadi"] else f"{stats['anlasilamadi']} parça anlaşılamadı")
+    if ids and stats["anlasilamadi"]:
+        # bir kısmı okunamadı: eklenenleri bağla ama mesaj gözden kaçmasın diye bekleyende kalsın
+        con.execute("UPDATE inbox SET outage_ids=?, note=? WHERE id=?",
+                    (",".join(str(i) for i in ids), f"{stats['anlasilamadi']} parça otomatik okunamadı; elle ekleyin",
+                     inbox_id))
+    elif ids:
+        _close(con, inbox_id, "eklendi", ids, None)
     elif stats["kesinti_disi"] == len(texts):
         _close(con, inbox_id, "kesinti_degil", [], "otomatik: kesinti mesajı değil")
     return {"ok": bool(ids), **{k: v for k, v in stats.items() if k != "anlasilamayanlar"}}
 
 
 def link_manual(con, inbox_id: int, outage_id: int):
-    _close(con, inbox_id, "eklendi", [outage_id], "elle eklendi")
+    row = con.execute("SELECT outage_ids FROM inbox WHERE id=?", (inbox_id,)).fetchone()
+    ids = [int(x) for x in ((row and row["outage_ids"]) or "").split(",") if x]
+    if outage_id not in ids:
+        ids.append(outage_id)
+    _close(con, inbox_id, "eklendi", ids, "elle eklendi")
 
 
 def ignore(con, inbox_id: int, note=None):

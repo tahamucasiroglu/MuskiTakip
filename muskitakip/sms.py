@@ -60,7 +60,7 @@ def norm_sha(text: str) -> str:
 def _split_names(text: str) -> list[str]:
     out = []
     for p in re.split(r",|\sVE\s", text):
-        p = clean(re.sub(r"\b(MAHALLESİNDE|MAHALLELERİNDE|MAHALLESİ|MAH\.?)\b", "", p))
+        p = clean(re.sub(r"\b(?:MAHALLESİNDE|MAHALLELERİNDE|MAHALLESİ|MAH)\b\.?", "", p)).strip(" .")
         if p and p not in out:
             out.append(p)
     return out
@@ -68,15 +68,24 @@ def _split_names(text: str) -> list[str]:
 
 def _time(date, hhmm):
     h, m = (int(x) for x in re.split(r"[.:]", hhmm))
-    if h >= 24:  # "24.00" -> ertesi gün 00:00
-        return date.replace(hour=0, minute=m) + timedelta(days=h // 24)
+    if not (0 <= m < 60 and 0 <= h <= 24) or (h == 24 and m):
+        raise ValueError(f"geçersiz saat: {hhmm}")
+    if h == 24:  # "24.00" -> ertesi gün 00:00
+        return date.replace(hour=0, minute=0) + timedelta(days=1)
     return date.replace(hour=h, minute=m)
 
 
 def parse_message(text: str) -> dict | None:
-    """Tek bir kesinti SMS'ini ayrıştırır; kesinti mesajı değilse None."""
+    """Tek bir kesinti SMS'ini ayrıştırır; kesinti mesajı değilse ya da okunamazsa None."""
     if not is_outage(text):
         return None
+    try:
+        return _parse_message(text)
+    except (ValueError, OverflowError):  # 31.02 ya da 22.75 gibi geçersiz tarih/saat
+        return None
+
+
+def _parse_message(text: str) -> dict | None:
     t = tr_upper(text)
     t = re.sub(r"^SAYIN ABONEMİZ;?\s*", "", t)
 
@@ -165,7 +174,8 @@ def find_group(con, msg):
     """Devam / dolum mesajını, aynı arıza yerindeki yakın tarihli mesaj kaydına bağlar."""
     if msg["tip"] not in ("devam", "dolum") or not msg["ariza_yeri"]:
         return None
-    rows = con.execute("SELECT * FROM outages WHERE source='mesaj' AND ariza_yeri=? ORDER BY tahmini_bitis DESC",
+    rows = con.execute("SELECT * FROM outages WHERE source='mesaj' AND ariza_yeri=? AND tahmini_bitis IS NOT NULL "
+                       "ORDER BY tahmini_bitis DESC",
                        (msg["ariza_yeri"],)).fetchall()
     best = None
     for r in rows:
@@ -174,6 +184,13 @@ def find_group(con, msg):
         if gap <= JOIN_WINDOW and (best is None or gap < best[0]):
             best = (gap, r)
     return best[1] if best else None
+
+
+def find_same(con, msg):
+    """Aynı tarih + kesinti yeri + bildirilen bitişe sahip mesaj kaydı (başka kanaldan girilmiş aynı kesinti)."""
+    return con.execute("SELECT * FROM outages WHERE source='mesaj' AND substr(kesinti_tarihi,1,10)=? "
+                       "AND COALESCE(ariza_yeri,'')=COALESCE(?,'') AND tahmini_bitis=?",
+                       (msg["tarih"], msg["ariza_yeri"], _iso(msg["bitis"]))).fetchone()
 
 
 def refresh_status(con, now_dt=None):
@@ -214,7 +231,11 @@ def import_messages(con, texts: list[str], kanal="toplu_ice_aktarim", received_a
         batch_seen.add(msg["sha"])
 
         group = find_group(con, msg)
-        if group:
+        same = None if group else find_same(con, msg)
+        if same:
+            oid = same["id"]
+            stats["mukerrer"] += 1
+        elif group:
             oid = group["id"]
             old_end = group["tahmini_bitis"]
             new_end = _iso(msg["bitis"])  # en son gelen mesajdaki bitiş geçerlidir
@@ -271,7 +292,7 @@ not:"""
 FORM_KEYS = {  # katlanmış anahtar -> alan
     "TARIH": "tarih", "GUN": "tarih",
     "BASLANGIC": "baslangic", "BASLAMA": "baslangic", "BASLANGIC SAATI": "baslangic", "SAAT": "baslangic",
-    "BITIS": "bitis", "BITIS SAATI": "bitis", "KADAR": "bitis",
+    "BITIS": "bitis", "BITIS SAATI": "bitis", "KADAR": "bitis", "BITIS TARIHI": "bitis_tarihi",
     "ILCE": "ilce",
     "YER": "yer", "KESINTI YERI": "yer", "ARIZA YERI": "yer", "KONUM": "yer", "ADRES": "yer",
     "MAHALLELER": "mahalleler", "MAHALLE": "mahalleler", "ETKILENEN": "mahalleler",
@@ -301,26 +322,42 @@ def parse_form(text: str) -> dict:
 
 
 def _form_date(text):
-    m = re.search(r"(\d{1,2})[./-](\d{1,2})[./-](\d{4})", text) or None
+    """'15.10.2026' / '15/10/2026' / '2026-10-15' -> datetime; yoksa None; geçersizse ValueError."""
+    text = text or ""
+    m = re.search(r"(\d{1,2})[./-](\d{1,2})[./-](\d{4})", text)
     if m:
         return datetime(int(m.group(3)), int(m.group(2)), int(m.group(1)), tzinfo=config.TZ)
-    m = re.search(r"(\d{4})-(\d{2})-(\d{2})", text)
+    m = re.search(r"(\d{4})-(\d{1,2})-(\d{1,2})", text)
     if m:
         return datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)), tzinfo=config.TZ)
     return None
 
 
 def _form_time(day, text):
-    m = re.search(r"(\d{1,2})[.:](\d{2})", text or "")
+    """Saat alanı; içinde tarih de yazılmışsa ('16.10.2026 02:00') o gün kullanılır."""
+    text = text or ""
+    d = _form_date(text)
+    if d:
+        day = d
+        text = re.sub(r"\d{1,2}[./-]\d{1,2}[./-]\d{4}|\d{4}-\d{1,2}-\d{1,2}", " ", text)
+    m = re.search(r"(?<![\d.:])(\d{1,2})[.:](\d{2})(?![\d])", text)
     return _time(day, f"{m.group(1)}.{m.group(2)}") if m else None
+
+
+def form_sha(form: dict) -> str:
+    keys = ("tarih", "baslangic", "bitis", "bitis_tarihi", "ilce", "yer", "mahalleler")
+    return norm_sha("FORM|" + "|".join(clean(form.get(k, "")) for k in keys))
 
 
 def add_structured(con, form: dict, kanal="telegram_form", received_at=None, raw_text=None) -> dict:
     """Kalıplı girişten 'mesaj' türünde kesinti ekler. Dönüş: {'durum': yeni|mukerrer|hata, 'id', 'hatalar'}."""
     errors = []
-    day = _form_date(form.get("tarih", ""))
+    try:
+        day = _form_date(form.get("tarih", ""))
+    except ValueError:
+        day = None
     if not day:
-        errors.append("tarih eksik ya da anlaşılamadı (örn. 15.10.2026)")
+        errors.append("tarih eksik ya da geçersiz (örn. 15.10.2026)")
     mahalleler = _split_names(tr_upper(form.get("mahalleler", "")))
     yer = clean(form.get("yer", "")) or None
     if yer:  # SMS kayıtlarıyla aynı biçim: "TUZLA Mah. 644 SOKAK"
@@ -333,8 +370,15 @@ def add_structured(con, form: dict, kanal="telegram_form", received_at=None, raw
         errors.append("mahalleler eksik")
     if errors:
         return {"durum": "hata", "id": None, "hatalar": errors}
-    start = _form_time(day, form.get("baslangic"))
-    end = _form_time(day, form.get("bitis"))
+    try:
+        start = _form_time(day, form.get("baslangic"))
+    except ValueError:
+        return {"durum": "hata", "id": None, "hatalar": ["başlangıç saati geçersiz (örn. 14:00)"]}
+    try:
+        end_day = _form_date(form.get("bitis_tarihi", "")) or day
+        end = _form_time(end_day, form.get("bitis"))
+    except ValueError:
+        return {"durum": "hata", "id": None, "hatalar": ["bitiş saati/tarihi geçersiz (örn. 22:00)"]}
     if start and end and end <= start:
         end += timedelta(days=1)
     tur_txt = _fold(form.get("tur", ""))
@@ -343,9 +387,10 @@ def add_structured(con, form: dict, kanal="telegram_form", received_at=None, raw
     kesinti_tarihi = _iso(start) if start else day.date().isoformat()
 
     raw = raw_text or "\n".join(f"{k}: {v}" for k, v in form.items())
-    sha = norm_sha(raw)
-    if con.execute("SELECT 1 FROM messages WHERE text_sha256=?", (sha,)).fetchone():
-        return {"durum": "mukerrer", "id": None, "hatalar": []}
+    sha = form_sha(form)
+    prev = con.execute("SELECT outage_id FROM messages WHERE text_sha256=?", (sha,)).fetchone()
+    if prev:
+        return {"durum": "mukerrer", "id": prev["outage_id"], "hatalar": []}
     dup = con.execute("SELECT id FROM outages WHERE source='mesaj' AND substr(kesinti_tarihi,1,10)=? "
                       "AND COALESCE(ariza_yeri,'')=COALESCE(?,'') AND COALESCE(tahmini_bitis,'')=COALESCE(?,'') "
                       "AND mahalleler_text=?",

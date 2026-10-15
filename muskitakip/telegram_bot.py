@@ -10,6 +10,7 @@ Kullanım:  python -m muskitakip.telegram_bot
 import json
 import logging
 import os
+import sqlite3
 import sys
 import time
 import urllib.error
@@ -132,6 +133,7 @@ def cmd_kesinti(con, text, received_at):
 
 def plain_message(con, msg, text, received_at):
     iid, new = inbox.save(con, text, "telegram", received_at, msg["chat"]["id"], msg["message_id"])
+    con.commit()  # ham mesaj, sonraki adımlarda hata olsa bile kaybolmasın
     if not new:
         return None
     p = inbox.preview(text)
@@ -213,9 +215,20 @@ def run():
                 try:
                     if "message" in upd:
                         handle(con, upd["message"])
+                except sqlite3.OperationalError:
+                    # geçici (ör. "database is locked"): offset ilerletilmez, mesaj bir sonraki turda tekrar alınır
+                    con.rollback()
+                    log.exception("Veritabanı geçici hatası, mesaj tekrar denenecek: %s", upd.get("update_id"))
+                    raise
                 except Exception:  # noqa: BLE001
                     con.rollback()
                     log.exception("Mesaj işlenemedi: %s", upd.get("update_id"))
+                    try:
+                        m = upd.get("message") or {}
+                        if m.get("from", {}).get("id") == owner_id(con):
+                            send(m["chat"]["id"], "⚠️ Bu mesaj işlenemedi. Web'deki Gelen Kutusu'na elle yapıştırabilirsin.")
+                    except Exception:  # noqa: BLE001
+                        log.exception("Hata bildirimi gönderilemedi")
                 set_setting(con, "tg_offset", upd["update_id"] + 1)
                 con.commit()
             backoff = 5
